@@ -1,1 +1,8 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+requests
+beautifulsoup4
+apscheduler
 scrapy
