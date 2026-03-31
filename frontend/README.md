@@ -1,16 +1,43 @@
-# React + Vite
+# PricePulse Frontend (Vite + React)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This frontend is ready to deploy as a Render Static Site.
 
-Currently, two official plugins are available:
+## 1) Required environment variable
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Set this in Render (Static Site -> Environment):
 
-## React Compiler
+```bash
+VITE_API_BASE_URL=https://your-backend-service.onrender.com
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Notes:
+- Do not add a trailing slash.
+- This value is required in production.
 
-## Expanding the ESLint configuration
+## 2) Render Static Site settings
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Use these values when creating the frontend service in Render:
+
+- Root Directory: `frontend`
+- Build Command: `npm install && npm run build`
+- Publish Directory: `dist`
+
+## 3) Backend CORS
+
+The backend now allows:
+- `localhost` / `127.0.0.1` during local development
+- `https://*.onrender.com`
+
+For stricter production control, set backend env var:
+
+```bash
+CORS_ORIGINS=https://your-frontend.onrender.com,https://your-custom-domain.com
+```
+
+## 4) Routing behavior
+
+The app uses `HashRouter` so deep links work on static hosting without extra rewrite rules.
+
+Example URLs:
+- `https://your-frontend.onrender.com/#/`
+- `https://your-frontend.onrender.com/#/products`

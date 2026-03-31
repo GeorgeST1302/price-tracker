@@ -1,4 +1,4 @@
-import { BrowserRouter, NavLink, Navigate, Route, Routes } from "react-router-dom"
+import { HashRouter, NavLink, Navigate, Route, Routes } from "react-router-dom"
 
 import Dashboard from "./pages/Dashboard"
 import AddProduct from "./pages/AddProduct"
@@ -10,7 +10,7 @@ import "./App.css"
 
 function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <div className="app-shell">
         <header className="topbar">
           <div>
@@ -52,7 +52,7 @@ function App() {
           </Routes>
         </main>
       </div>
-    </BrowserRouter>
+    </HashRouter>
   )
 }
 

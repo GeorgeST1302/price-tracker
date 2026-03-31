@@ -20,11 +20,20 @@ ensure_sqlite_schema()
 
 app = FastAPI(title="PricePulse API")
 
+
+def _parse_cors_origins_from_env() -> list[str]:
+    raw = os.getenv("CORS_ORIGINS", "")
+    if not raw.strip():
+        return []
+    return [origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()]
+
 # CORS: allow the Vite dev server to call the API from the browser.
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=_parse_cors_origins_from_env(),
     # Vite may auto-increment ports (5173 -> 5174, etc.).
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    # Also allow Render static-site domains by default.
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://[a-z0-9-]+\.onrender\.com$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
