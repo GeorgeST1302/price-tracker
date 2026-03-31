@@ -1,5 +1,11 @@
-from services.scraper_service import fetch_amazon_price_scraper, resolve_asin_from_search_term
+import logging
+
 from services.api_fallback import fetch_amazon_price_api
+from services.scraper_service import fetch_amazon_price_scraper, resolve_asin_from_search_term
+from services.zyte_client import fetch_price_from_zyte
+
+
+logger = logging.getLogger(__name__)
 
 
 def compute_trend(prices: list[float]) -> str | None:
@@ -68,16 +74,20 @@ def compute_recommendation(prices: list[float]) -> str | None:
 
 
 def get_product_data(asin: str):
-
-    # Try scraper first
+    # Try scraper first.
     data = fetch_amazon_price_scraper(asin)
 
     if data:
-        print("✅ Scraper success")
+        logger.info("Scraper success for ASIN=%s", asin)
         return data
 
-    # Fallback
-    print("⚠️ Scraper failed → using fallback")
+    logger.info("Direct scraper failed for ASIN=%s, trying Zyte", asin)
+    data = fetch_price_from_zyte(asin)
+    if data and isinstance(data, dict):
+        return data
+
+    # Fallback if the scraper cannot get live data.
+    logger.warning("Scraper failed for ASIN=%s, using fallback", asin)
     return fetch_amazon_price_api(asin)
 
 

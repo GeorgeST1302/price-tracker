@@ -1,5 +1,6 @@
 import os
 import importlib
+import re
 from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -85,7 +86,10 @@ def _attach_product_insights(db: Session, product: models.Product) -> models.Pro
 # CREATE PRODUCT (NOW REAL DATA)
 @app.post("/products", response_model=schemas.ProductResponse)
 def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)):
-    resolved_asin = resolve_asin(product.product_name)
+    requested_asin = (product.asin or "").strip().upper()
+    resolved_asin = requested_asin if re.fullmatch(r"[A-Z0-9]{10}", requested_asin) else None
+    if not resolved_asin:
+        resolved_asin = resolve_asin(product.product_name)
     if not resolved_asin:
         raise HTTPException(
             status_code=400,
@@ -98,6 +102,8 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
 
     # 🔥 Fetch real data (scraper or fallback)
     product_data = get_product_data(resolved_asin)
+    if not product_data or "title" not in product_data or "price" not in product_data:
+        raise HTTPException(status_code=502, detail="Failed to fetch product details from Amazon")
 
     new_product = models.Product(
         name=product_data["title"],
@@ -140,6 +146,11 @@ def get_products(q: str | None = Query(default=None), db: Session = Depends(get_
     return products
 
 
+@app.get("/products/search", response_model=list[schemas.ProductSearchResult])
+def search_products(q: str = Query(min_length=2), limit: int = Query(default=6, ge=1, le=12)):
+    return search_amazon_products(q, limit=limit)
+
+
 @app.get("/products/{product_id}", response_model=schemas.ProductResponse)
 def get_product(product_id: int, db: Session = Depends(get_db)):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
@@ -147,11 +158,6 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Product not found")
     _attach_product_insights(db, product)
     return product
-
-
-@app.get("/products/search", response_model=list[schemas.ProductSearchResult])
-def search_products(q: str = Query(min_length=2), limit: int = Query(default=6, ge=1, le=12)):
-    return search_amazon_products(q, limit=limit)
 
 
 # GET PRICE HISTORY FOR A PRODUCT

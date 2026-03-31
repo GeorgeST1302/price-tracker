@@ -5,6 +5,7 @@ from typing import Optional
 class ProductCreate(BaseModel):
     product_name: str
     target_price: float
+    asin: Optional[str] = None
 
 
 class ProductResponse(BaseModel):

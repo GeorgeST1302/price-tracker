@@ -91,6 +91,7 @@ function AddProduct() {
         body: JSON.stringify({
           product_name: trimmedProductName,
           target_price: parsedTarget,
+          asin: selectedPreview?.asin || null,
         }),
       })
 
@@ -166,7 +167,7 @@ function AddProduct() {
                       <div className="live-card-body">
                         <p className="live-title">{item.title}</p>
                         <p className="section-sub">Seller: {item.seller || "Marketplace seller"}</p>
-                        <p className="live-price">{Number.isFinite(item.price) ? `₹${item.price}` : "Price unavailable"}</p>
+                        <p className="live-price">{Number.isFinite(item.price) ? `Rs. ${item.price}` : "Price unavailable"}</p>
                       </div>
                     </button>
                   )
@@ -200,7 +201,7 @@ function AddProduct() {
 
       {created ? (
         <div className="notice notice-success">
-          Added <b>{created.name}</b> | Target: ₹{created.target_price}
+          Added <b>{created.name}</b> | Target: Rs. {created.target_price}
         </div>
       ) : null}
     </section>
