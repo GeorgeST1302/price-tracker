@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react"
-import { getApiBaseUrl } from "../lib/apiBaseUrl"
+
+import { apiJson } from "../lib/apiBaseUrl"
 
 function Alerts() {
-  const apiBaseUrl = useMemo(() => getApiBaseUrl(), [])
-
   const [products, setProducts] = useState([])
   const [alerts, setAlerts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -19,28 +18,14 @@ function Alerts() {
     setError(null)
 
     try {
-      const [productsRes, alertsRes] = await Promise.all([
-        fetch(`${apiBaseUrl}/products`),
-        fetch(`${apiBaseUrl}/alerts?triggered_only=true`),
+      const [productsData, alertsData] = await Promise.all([
+        apiJson("/products"),
+        apiJson("/alerts?triggered_only=true"),
       ])
-
-      if (!productsRes.ok) {
-        const bodyText = await productsRes.text().catch(() => "")
-        throw new Error(`HTTP ${productsRes.status} ${productsRes.statusText}${bodyText ? ` - ${bodyText}` : ""}`)
-      }
-
-      if (!alertsRes.ok) {
-        const bodyText = await alertsRes.text().catch(() => "")
-        throw new Error(`HTTP ${alertsRes.status} ${alertsRes.statusText}${bodyText ? ` - ${bodyText}` : ""}`)
-      }
-
-      const productsData = await productsRes.json()
-      const alertsData = await alertsRes.json()
 
       setProducts(Array.isArray(productsData) ? productsData : [])
       setAlerts(Array.isArray(alertsData) ? alertsData : [])
     } catch (err) {
-      console.error("[Alerts] load failed:", err)
       setError(err instanceof Error ? err.message : String(err))
       setProducts([])
       setAlerts([])
@@ -51,18 +36,19 @@ function Alerts() {
 
   useEffect(() => {
     let cancelled = false
+
     ;(async () => {
       if (cancelled) return
       await loadAll()
     })()
+
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiBaseUrl])
+  }, [])
 
-  async function handleCreate(e) {
-    e.preventDefault()
+  async function handleCreate(event) {
+    event.preventDefault()
     setError(null)
     setCreatedMsg(null)
 
@@ -81,31 +67,24 @@ function Alerts() {
 
     try {
       setSubmitting(true)
-      const res = await fetch(`${apiBaseUrl}/alerts`, {
+      const created = await apiJson("/alerts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ product_id: parsedProductId, target_price: parsedTarget }),
       })
 
-      if (!res.ok) {
-        const bodyText = await res.text().catch(() => "")
-        throw new Error(`HTTP ${res.status} ${res.statusText}${bodyText ? ` - ${bodyText}` : ""}`)
-      }
-
-      const created = await res.json()
-      const product = products.find((p) => Number(p.id) === Number(created.product_id))
-      setCreatedMsg(`Alert created for ${product?.name || "product"} at ₹${created.target_price}`)
+      const product = products.find((item) => Number(item.id) === Number(created.product_id))
+      setCreatedMsg(`Alert created for ${product?.name || "product"} at Rs. ${created.target_price}`)
       setTargetPrice("")
       await loadAll()
     } catch (err) {
-      console.error("[Alerts] create failed:", err)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setSubmitting(false)
     }
   }
 
-  const byProductId = useMemo(() => new Map(products.map((p) => [Number(p.id), p])), [products])
+  const byProductId = useMemo(() => new Map(products.map((product) => [Number(product.id), product])), [products])
 
   return (
     <section className="stack">
@@ -129,13 +108,13 @@ function Alerts() {
             id="alert-product-select"
             className="select"
             value={productId}
-            onChange={(e) => setProductId(e.target.value)}
+            onChange={(event) => setProductId(event.target.value)}
             disabled={loading || submitting}
           >
             <option value="">Select...</option>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
+            {products.map((product) => (
+              <option key={product.id} value={product.id}>
+                {product.name}
               </option>
             ))}
           </select>
@@ -147,7 +126,7 @@ function Alerts() {
             id="alert-target-price"
             className="input"
             value={targetPrice}
-            onChange={(e) => setTargetPrice(e.target.value)}
+            onChange={(event) => setTargetPrice(event.target.value)}
             placeholder="e.g. 1200"
             disabled={loading || submitting}
           />
@@ -169,18 +148,16 @@ function Alerts() {
         <div className="notice">No triggered alerts yet.</div>
       ) : (
         <div className="stack">
-          {alerts.map((a) => {
-            const p = byProductId.get(Number(a.product_id))
+          {alerts.map((alert) => {
+            const product = byProductId.get(Number(alert.product_id))
             return (
-              <article className="card" key={a.id}>
+              <article className="card" key={alert.id}>
                 <div className="row">
-                  <h3>{p?.name || `Product #${a.product_id}`}</h3>
+                  <h3>{product?.name || `Product #${alert.product_id}`}</h3>
                   <span className="badge badge-good">Triggered</span>
                 </div>
-                <p className="section-sub">Threshold: ₹{a.target_price}</p>
-                <p className="section-sub">
-                  Triggered at: {a.triggered_at ? new Date(a.triggered_at).toLocaleString() : "-"}
-                </p>
+                <p className="section-sub">Threshold: Rs. {alert.target_price}</p>
+                <p className="section-sub">Triggered at: {alert.triggered_at ? new Date(alert.triggered_at).toLocaleString() : "-"}</p>
               </article>
             )
           })}

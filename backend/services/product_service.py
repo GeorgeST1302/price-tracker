@@ -1,8 +1,13 @@
 import logging
 
-from services.api_fallback import fetch_amazon_price_api
-from services.scraper_service import fetch_amazon_price_scraper, resolve_asin_from_search_term
-from services.zyte_client import fetch_price_from_zyte
+try:
+    from .api_fallback import fetch_amazon_price_api
+    from .scraper_service import fetch_amazon_price_scraper, resolve_asin_from_search_term
+    from .zyte_client import fetch_price_from_zyte
+except ImportError:
+    from services.api_fallback import fetch_amazon_price_api
+    from services.scraper_service import fetch_amazon_price_scraper, resolve_asin_from_search_term
+    from services.zyte_client import fetch_price_from_zyte
 
 
 logger = logging.getLogger(__name__)

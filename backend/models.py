@@ -1,7 +1,11 @@
 from sqlalchemy import Boolean, Column, Integer, String, Float, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from database import Base
+
+try:
+    from .database import Base
+except ImportError:
+    from database import Base
 
 class Product(Base):
     __tablename__ = "products"

@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react"
-import { getApiBaseUrl } from "../lib/apiBaseUrl"
+import { useEffect, useRef, useState } from "react"
 import Chart from "chart.js/auto"
 
+import { apiJson } from "../lib/apiBaseUrl"
+
 function ProductDetail() {
-  const apiBaseUrl = useMemo(() => getApiBaseUrl(), [])
   const [products, setProducts] = useState([])
   const [selectedProductId, setSelectedProductId] = useState("")
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadingHistory, setLoadingHistory] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
 
@@ -20,65 +21,57 @@ function ProductDetail() {
     async function loadProducts() {
       setLoading(true)
       setError(null)
-      try {
-        const res = await fetch(`${apiBaseUrl}/products`)
-        if (!res.ok) {
-          const bodyText = await res.text().catch(() => "")
-          throw new Error(`HTTP ${res.status} ${res.statusText}${bodyText ? ` - ${bodyText}` : ""}`)
-        }
 
-        const data = await res.json()
+      try {
+        const data = await apiJson("/products")
         if (cancelled) return
         setProducts(Array.isArray(data) ? data : [])
       } catch (err) {
         if (cancelled) return
-        console.error("[ProductDetail] Products fetch failed:", err)
         setError(err instanceof Error ? err.message : String(err))
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
 
-    loadProducts()
+    void loadProducts()
+
     return () => {
       cancelled = true
     }
-  }, [apiBaseUrl])
+  }, [])
 
   async function loadHistory(productId) {
+    setLoadingHistory(true)
     setError(null)
+
     try {
-      const res = await fetch(`${apiBaseUrl}/products/${productId}/history?limit=60`)
-      if (!res.ok) {
-        const bodyText = await res.text().catch(() => "")
-        throw new Error(`HTTP ${res.status} ${res.statusText}${bodyText ? ` - ${bodyText}` : ""}`)
-      }
-      const data = await res.json()
+      const data = await apiJson(`/products/${productId}/history?limit=60`)
       setHistory(Array.isArray(data) ? data : [])
     } catch (err) {
-      console.error("[ProductDetail] History fetch failed:", err)
       setError(err instanceof Error ? err.message : String(err))
       setHistory([])
+    } finally {
+      setLoadingHistory(false)
     }
   }
 
   useEffect(() => {
-    // Rebuild chart when history changes.
-    if (!canvasRef.current) return
+    if (!canvasRef.current) return undefined
 
     if (chartRef.current) {
       chartRef.current.destroy()
       chartRef.current = null
     }
 
-    if (!history || history.length < 2) return
+    if (!history || history.length < 2) return undefined
 
     const points = [...history].reverse()
-    const labels = points.map((h) => {
-      const d = new Date(h.timestamp)
-      return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`
+    const labels = points.map((entry) => {
+      const date = new Date(entry.timestamp)
+      return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`
     })
-    const prices = points.map((h) => Number(h.price))
+    const prices = points.map((entry) => Number(entry.price))
 
     chartRef.current = new Chart(canvasRef.current, {
       type: "line",
@@ -86,7 +79,7 @@ function ProductDetail() {
         labels,
         datasets: [
           {
-            label: "Price (₹)",
+            label: "Price (Rs.)",
             data: prices,
             tension: 0.25,
             borderWidth: 2,
@@ -117,25 +110,21 @@ function ProductDetail() {
 
   async function refreshNow() {
     if (!selectedProductId) return
+
     setRefreshing(true)
     setError(null)
 
     try {
-      const res = await fetch(`${apiBaseUrl}/products/${selectedProductId}/refresh`, { method: "POST" })
-      if (!res.ok) {
-        const bodyText = await res.text().catch(() => "")
-        throw new Error(`HTTP ${res.status} ${res.statusText}${bodyText ? ` - ${bodyText}` : ""}`)
-      }
+      await apiJson(`/products/${selectedProductId}/refresh`, { method: "POST" })
       await loadHistory(selectedProductId)
     } catch (err) {
-      console.error("[ProductDetail] Refresh failed:", err)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setRefreshing(false)
     }
   }
 
-  const selectedProduct = products.find((p) => String(p.id) === String(selectedProductId))
+  const selectedProduct = products.find((product) => String(product.id) === String(selectedProductId))
   const latestPrice = history[0]?.price
   const isDropped =
     selectedProduct && Number.isFinite(Number(latestPrice)) && Number(latestPrice) <= Number(selectedProduct.target_price)
@@ -166,17 +155,17 @@ function ProductDetail() {
               id="detail-select"
               className="select"
               value={selectedProductId}
-              onChange={async (e) => {
-                const id = e.target.value
-                setSelectedProductId(id)
+              onChange={async (event) => {
+                const nextId = event.target.value
+                setSelectedProductId(nextId)
                 setHistory([])
-                if (id) await loadHistory(id)
+                if (nextId) await loadHistory(nextId)
               }}
             >
               <option value="">Select...</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.name}
                 </option>
               ))}
             </select>
@@ -192,8 +181,8 @@ function ProductDetail() {
         <div className="card stack">
           <h3>{selectedProduct.name}</h3>
           <div className="row">
-            <span>Target: ₹{selectedProduct.target_price}</span>
-            <span>Latest: {Number.isFinite(Number(latestPrice)) ? `₹${latestPrice}` : "N/A"}</span>
+            <span>Target: Rs. {selectedProduct.target_price}</span>
+            <span>Latest: {Number.isFinite(Number(latestPrice)) ? `Rs. ${latestPrice}` : "N/A"}</span>
             {isDropped ? <span className="badge badge-good">Price dropped!</span> : null}
           </div>
           <p className="section-sub">Last updated: {selectedProduct.last_updated ? new Date(selectedProduct.last_updated).toLocaleString() : "-"}</p>
@@ -202,7 +191,12 @@ function ProductDetail() {
       ) : null}
 
       {selectedProductId ? (
-        history.length === 0 ? (
+        loadingHistory ? (
+          <div className="row">
+            <span className="spinner" aria-label="Loading" />
+            <span>Loading price history...</span>
+          </div>
+        ) : history.length === 0 ? (
           <div className="notice">No price history yet.</div>
         ) : (
           <div className="stack">
@@ -223,10 +217,10 @@ function ProductDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {history.map((h) => (
-                    <tr key={h.id}>
-                      <td>{new Date(h.timestamp).toLocaleString()}</td>
-                      <td>₹{h.price}</td>
+                  {history.map((entry) => (
+                    <tr key={entry.id}>
+                      <td>{new Date(entry.timestamp).toLocaleString()}</td>
+                      <td>Rs. {entry.price}</td>
                     </tr>
                   ))}
                 </tbody>

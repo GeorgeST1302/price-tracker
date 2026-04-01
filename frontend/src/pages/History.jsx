@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from "react"
-import { getApiBaseUrl } from "../lib/apiBaseUrl"
+import { useEffect, useState } from "react"
+
+import { apiJson } from "../lib/apiBaseUrl"
 
 function History() {
-  const apiBaseUrl = useMemo(() => getApiBaseUrl(), [])
-
   const [products, setProducts] = useState([])
   const [selectedProductId, setSelectedProductId] = useState("")
   const [history, setHistory] = useState([])
@@ -17,21 +16,13 @@ function History() {
     async function loadProducts() {
       setLoadingProducts(true)
       setError(null)
-      const url = `${apiBaseUrl}/products`
-      console.log("[History] Fetch products:", url)
 
       try {
-        const res = await fetch(url)
-        if (!res.ok) {
-          const bodyText = await res.text().catch(() => "")
-          throw new Error(`HTTP ${res.status} ${res.statusText}${bodyText ? ` - ${bodyText}` : ""}`)
-        }
-        const data = await res.json()
+        const data = await apiJson("/products")
         if (cancelled) return
         setProducts(Array.isArray(data) ? data : [])
       } catch (err) {
         if (cancelled) return
-        console.error("[History] Products fetch failed:", err)
         setError(err instanceof Error ? err.message : String(err))
         setProducts([])
       } finally {
@@ -39,28 +30,21 @@ function History() {
       }
     }
 
-    loadProducts()
+    void loadProducts()
+
     return () => {
       cancelled = true
     }
-  }, [apiBaseUrl])
+  }, [])
 
   async function loadHistory(productId) {
     setLoadingHistory(true)
     setError(null)
-    const url = `${apiBaseUrl}/products/${productId}/history`
-    console.log("[History] Fetch history:", url)
 
     try {
-      const res = await fetch(url)
-      if (!res.ok) {
-        const bodyText = await res.text().catch(() => "")
-        throw new Error(`HTTP ${res.status} ${res.statusText}${bodyText ? ` - ${bodyText}` : ""}`)
-      }
-      const data = await res.json()
+      const data = await apiJson(`/products/${productId}/history`)
       setHistory(Array.isArray(data) ? data : [])
     } catch (err) {
-      console.error("[History] History fetch failed:", err)
       setError(err instanceof Error ? err.message : String(err))
       setHistory([])
     } finally {
@@ -70,26 +54,18 @@ function History() {
 
   async function refreshNow() {
     if (!selectedProductId) return
+
     setError(null)
-    const url = `${apiBaseUrl}/products/${selectedProductId}/refresh`
-    console.log("[History] Refresh now:", url)
 
     try {
-      const res = await fetch(url, { method: "POST" })
-      if (!res.ok) {
-        const bodyText = await res.text().catch(() => "")
-        throw new Error(`HTTP ${res.status} ${res.statusText}${bodyText ? ` - ${bodyText}` : ""}`)
-      }
-      const data = await res.json()
-      console.log("[History] Refresh saved:", data)
+      await apiJson(`/products/${selectedProductId}/refresh`, { method: "POST" })
       await loadHistory(selectedProductId)
     } catch (err) {
-      console.error("[History] Refresh failed:", err)
       setError(err instanceof Error ? err.message : String(err))
     }
   }
 
-  const selectedProduct = products.find((p) => String(p.id) === String(selectedProductId))
+  const selectedProduct = products.find((product) => String(product.id) === String(selectedProductId))
 
   return (
     <section className="stack">
@@ -117,24 +93,24 @@ function History() {
               id="history-product-select"
               className="select"
               value={selectedProductId}
-              onChange={async (e) => {
-                const id = e.target.value
-                setSelectedProductId(id)
+              onChange={async (event) => {
+                const nextId = event.target.value
+                setSelectedProductId(nextId)
                 setHistory([])
-                if (id) await loadHistory(id)
+                if (nextId) await loadHistory(nextId)
               }}
             >
               <option value="">Select...</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.name}
                 </option>
               ))}
             </select>
           </label>
 
           <div className="row">
-            <button className="button" onClick={refreshNow} disabled={!selectedProductId || loadingHistory}>
+            <button className="button" type="button" onClick={refreshNow} disabled={!selectedProductId || loadingHistory}>
               Refresh price now
             </button>
           </div>
@@ -146,7 +122,7 @@ function History() {
           <p>
             <b>{selectedProduct.name}</b>
           </p>
-          <p>Target: ₹{selectedProduct.target_price}</p>
+          <p>Target: Rs. {selectedProduct.target_price}</p>
         </div>
       ) : null}
 
@@ -168,10 +144,10 @@ function History() {
                 </tr>
               </thead>
               <tbody>
-                {history.map((h) => (
-                  <tr key={h.id}>
-                    <td>{new Date(h.timestamp).toLocaleString()}</td>
-                    <td>₹{h.price}</td>
+                {history.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>{new Date(entry.timestamp).toLocaleString()}</td>
+                    <td>Rs. {entry.price}</td>
                   </tr>
                 ))}
               </tbody>

@@ -6,7 +6,9 @@ import ProductList from "./pages/ProductList"
 import ProductDetail from "./pages/ProductDetail"
 import History from "./pages/History"
 import Alerts from "./pages/Alerts"
+import AlertWatcher from "./components/AlertWatcher"
 import "./App.css"
+
 function App() {
   return (
     <HashRouter>
@@ -39,6 +41,8 @@ function App() {
             </NavLink>
           </nav>
         </header>
+
+        <AlertWatcher />
 
         <main className="page">
           <Routes>

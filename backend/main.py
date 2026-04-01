@@ -2,17 +2,23 @@ import os
 import importlib
 import re
 from datetime import datetime
+
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
 from sqlalchemy import func
-from database import SessionLocal, engine, ensure_sqlite_schema
-import models
-import schemas
+from sqlalchemy.orm import Session
 
-# NEW IMPORT
-from services.product_service import compute_recommendation, compute_trend, get_product_data, resolve_asin
-from services.scraper_service import search_amazon_products
+try:
+    from .database import SessionLocal, engine, ensure_sqlite_schema
+    from . import models, schemas
+    from .services.product_service import compute_recommendation, compute_trend, get_product_data, resolve_asin
+    from .services.scraper_service import search_amazon_products
+except ImportError:
+    from database import SessionLocal, engine, ensure_sqlite_schema
+    import models
+    import schemas
+    from services.product_service import compute_recommendation, compute_trend, get_product_data, resolve_asin
+    from services.scraper_service import search_amazon_products
 
 # Create database tables
 models.Base.metadata.create_all(bind=engine)
@@ -50,9 +56,14 @@ def get_db():
 
 
 # Root endpoint
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def root():
     return {"message": "PricePulse API is running successfully"}
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
 
 
 def _get_recent_prices(db: Session, product_id: int, limit: int = 10) -> list[float]:

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
-import { getApiBaseUrl } from "../lib/apiBaseUrl"
+
+import { apiJson, apiRequest } from "../lib/apiBaseUrl"
 
 function getRelativeTimeLabel(isoDate) {
   const ms = Date.now() - new Date(isoDate).getTime()
@@ -24,16 +25,12 @@ function ProductList() {
   const [deletingId, setDeletingId] = useState(null)
   const [error, setError] = useState(null)
 
-  const apiBaseUrl = useMemo(() => {
-    return getApiBaseUrl()
-  }, [])
-
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const timer = window.setTimeout(() => {
       setSearchTerm(searchInput.trim())
     }, 280)
 
-    return () => clearTimeout(timer)
+    return () => window.clearTimeout(timer)
   }, [searchInput])
 
   useEffect(() => {
@@ -43,28 +40,17 @@ function ProductList() {
       setLoading(true)
       setError(null)
 
-      const url = new URL(`${apiBaseUrl}/products`)
-      if (searchTerm) {
-        url.searchParams.set("q", searchTerm)
-      }
-
-      console.log("[ProductList] Fetching:", url)
-
       try {
-        const res = await fetch(url.toString())
-
-        if (!res.ok) {
-          const bodyText = await res.text().catch(() => "")
-          throw new Error(`HTTP ${res.status} ${res.statusText}${bodyText ? ` - ${bodyText}` : ""}`)
+        const params = new URLSearchParams()
+        if (searchTerm) {
+          params.set("q", searchTerm)
         }
 
-        const data = await res.json()
-        console.log("[ProductList] Response:", data)
-
+        const path = params.toString() ? `/products?${params.toString()}` : "/products"
+        const data = await apiJson(path)
         if (cancelled) return
 
         if (!Array.isArray(data)) {
-          console.error("[ProductList] Expected an array but got:", data)
           setProducts([])
           setError("Unexpected API response format")
           return
@@ -73,7 +59,6 @@ function ProductList() {
         setProducts(data)
       } catch (err) {
         if (cancelled) return
-        console.error("[ProductList] Fetch failed:", err)
         setProducts([])
         setError(err instanceof Error ? err.message : String(err))
       } finally {
@@ -81,12 +66,12 @@ function ProductList() {
       }
     }
 
-    loadProducts()
+    void loadProducts()
 
     return () => {
       cancelled = true
     }
-  }, [apiBaseUrl, searchTerm])
+  }, [searchTerm])
 
   const sortedProducts = useMemo(() => {
     const cloned = [...products]
@@ -106,7 +91,6 @@ function ProductList() {
       return cloned
     }
 
-    // Default: newest by created_at.
     cloned.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     return cloned
   }, [products, sortBy])
@@ -116,24 +100,17 @@ function ProductList() {
     setDeletingId(productId)
 
     try {
-      const res = await fetch(`${apiBaseUrl}/products/${productId}`, { method: "DELETE" })
-      if (!res.ok) {
-        const bodyText = await res.text().catch(() => "")
-        throw new Error(`HTTP ${res.status} ${res.statusText}${bodyText ? ` - ${bodyText}` : ""}`)
+      await apiRequest(`/products/${productId}`, { method: "DELETE" })
+
+      const params = new URLSearchParams()
+      if (searchTerm) {
+        params.set("q", searchTerm)
       }
 
-      // Refresh list.
-      const url = new URL(`${apiBaseUrl}/products`)
-      if (searchTerm) url.searchParams.set("q", searchTerm)
-      const next = await fetch(url.toString())
-      if (!next.ok) {
-        const bodyText = await next.text().catch(() => "")
-        throw new Error(`HTTP ${next.status} ${next.statusText}${bodyText ? ` - ${bodyText}` : ""}`)
-      }
-      const data = await next.json()
+      const path = params.toString() ? `/products?${params.toString()}` : "/products"
+      const data = await apiJson(path)
       setProducts(Array.isArray(data) ? data : [])
     } catch (err) {
-      console.error("[ProductList] Delete failed:", err)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setDeletingId(null)
@@ -154,10 +131,10 @@ function ProductList() {
           className="input"
           placeholder="Search by product name"
           value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
+          onChange={(event) => setSearchInput(event.target.value)}
         />
 
-        <select className="select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+        <select className="select" value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
           <option value="newest">Sort: Newest</option>
           <option value="name_asc">Sort: Name A-Z</option>
           <option value="target_asc">Sort: Target Price Low-High</option>
@@ -165,7 +142,9 @@ function ProductList() {
         </select>
 
         {searchInput ? (
-          <button className="button" type="button" onClick={() => setSearchInput("")}>Clear</button>
+          <button className="button" type="button" onClick={() => setSearchInput("")}>
+            Clear
+          </button>
         ) : null}
       </div>
 
@@ -183,32 +162,28 @@ function ProductList() {
       ) : (
         <div className="stack">
           <p className="section-sub">Showing {sortedProducts.length} result(s)</p>
-          {sortedProducts.map((p) => (
-            <article className="card" key={p.id}>
+          {sortedProducts.map((product) => (
+            <article className="card" key={product.id}>
               <div className="row">
-                <h3>{p.name}</h3>
-                <span className="badge badge-warn">Target ₹{p.target_price}</span>
+                <h3>{product.name}</h3>
+                <span className="badge badge-warn">Target Rs. {product.target_price}</span>
               </div>
-              <p className="section-sub">
-                Added: {new Date(p.created_at).toLocaleDateString()}
-              </p>
-              <p className="section-sub">
-                Last updated: {p.last_updated ? getRelativeTimeLabel(p.last_updated) : "-"}
-              </p>
+              <p className="section-sub">Added: {new Date(product.created_at).toLocaleDateString()}</p>
+              <p className="section-sub">Last updated: {product.last_updated ? getRelativeTimeLabel(product.last_updated) : "-"}</p>
               <div className="row" style={{ marginTop: 10 }}>
                 <span className="section-sub">
-                  Latest: {Number.isFinite(Number(p.latest_price)) ? `₹${Number(p.latest_price)}` : "N/A"}
+                  Latest: {Number.isFinite(Number(product.latest_price)) ? `Rs. ${Number(product.latest_price)}` : "N/A"}
                 </span>
-                <span className={p.recommendation === "BUY" ? "badge badge-good" : p.recommendation === "HOLD" ? "badge badge-danger" : "badge badge-warn"}>
-                  {p.recommendation || "-"}
+                <span className={product.recommendation === "BUY" ? "badge badge-good" : product.recommendation === "HOLD" ? "badge badge-danger" : "badge badge-warn"}>
+                  {product.recommendation || "-"}
                 </span>
                 <button
                   className="button"
                   type="button"
-                  disabled={deletingId === p.id}
-                  onClick={() => handleDelete(p.id)}
+                  disabled={deletingId === product.id}
+                  onClick={() => handleDelete(product.id)}
                 >
-                  {deletingId === p.id ? "Deleting..." : "Delete"}
+                  {deletingId === product.id ? "Deleting..." : "Delete"}
                 </button>
               </div>
             </article>

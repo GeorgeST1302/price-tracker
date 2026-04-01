@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useState } from "react"
-import { getApiBaseUrl } from "../lib/apiBaseUrl"
+import { useEffect, useState } from "react"
+
+import { apiJson } from "../lib/apiBaseUrl"
 
 function AddProduct() {
-  const apiBaseUrl = useMemo(() => getApiBaseUrl(), [])
-
   const [productName, setProductName] = useState("")
   const [targetPrice, setTargetPrice] = useState("")
   const [loading, setLoading] = useState(false)
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchResults, setSearchResults] = useState([])
+  const [searchError, setSearchError] = useState(null)
   const [selectedPreview, setSelectedPreview] = useState(null)
   const [error, setError] = useState(null)
   const [created, setCreated] = useState(null)
@@ -19,38 +19,32 @@ function AddProduct() {
     if (term.length < 2) {
       setSearchResults([])
       setSelectedPreview(null)
-      return
+      setSearchLoading(false)
+      setSearchError(null)
+      return undefined
     }
 
     let cancelled = false
-    const timer = setTimeout(async () => {
+    const timer = window.setTimeout(async () => {
       setSearchLoading(true)
+      setSearchError(null)
 
       try {
-        const url = new URL(`${apiBaseUrl}/products/search`)
-        url.searchParams.set("q", term)
-        url.searchParams.set("limit", "6")
-
-        const res = await fetch(url.toString())
-        if (!res.ok) {
-          const bodyText = await res.text().catch(() => "")
-          throw new Error(`HTTP ${res.status} ${res.statusText}${bodyText ? ` - ${bodyText}` : ""}`)
-        }
-
-        const data = await res.json()
+        const params = new URLSearchParams({ q: term, limit: "6" })
+        const data = await apiJson(`/products/search?${params.toString()}`, { timeoutMs: 15000 })
         if (cancelled) return
 
-        const safe = Array.isArray(data) ? data : []
-        setSearchResults(safe)
+        const safeResults = Array.isArray(data) ? data : []
+        setSearchResults(safeResults)
 
         if (selectedPreview) {
-          const stillExists = safe.find((x) => x.asin === selectedPreview.asin)
+          const stillExists = safeResults.find((item) => item.asin === selectedPreview.asin)
           if (!stillExists) setSelectedPreview(null)
         }
       } catch (err) {
         if (cancelled) return
-        console.error("[AddProduct] Live search failed:", err)
         setSearchResults([])
+        setSearchError(err instanceof Error ? err.message : "Live product search is unavailable right now. Please try again in a moment.")
       } finally {
         if (!cancelled) setSearchLoading(false)
       }
@@ -58,12 +52,12 @@ function AddProduct() {
 
     return () => {
       cancelled = true
-      clearTimeout(timer)
+      window.clearTimeout(timer)
     }
-  }, [apiBaseUrl, productName, selectedPreview])
+  }, [productName, selectedPreview])
 
-  async function handleSubmit(e) {
-    e.preventDefault()
+  async function handleSubmit(event) {
+    event.preventDefault()
     setError(null)
     setCreated(null)
 
@@ -80,12 +74,9 @@ function AddProduct() {
       return
     }
 
-    const url = `${apiBaseUrl}/products`
-    console.log("[AddProduct] POST:", url)
-
     try {
       setLoading(true)
-      const res = await fetch(url, {
+      const data = await apiJson("/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -95,20 +86,12 @@ function AddProduct() {
         }),
       })
 
-      if (!res.ok) {
-        const bodyText = await res.text().catch(() => "")
-        throw new Error(`HTTP ${res.status} ${res.statusText}${bodyText ? ` - ${bodyText}` : ""}`)
-      }
-
-      const data = await res.json()
-      console.log("[AddProduct] Created:", data)
       setCreated(data)
       setProductName("")
       setTargetPrice("")
       setSearchResults([])
       setSelectedPreview(null)
     } catch (err) {
-      console.error("[AddProduct] Create failed:", err)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
@@ -131,7 +114,7 @@ function AddProduct() {
             id="product-name-input"
             className="input"
             value={productName}
-            onChange={(e) => setProductName(e.target.value)}
+            onChange={(event) => setProductName(event.target.value)}
             placeholder="e.g. logitech mouse"
             disabled={loading}
           />
@@ -143,6 +126,8 @@ function AddProduct() {
 
             {searchLoading ? (
               <p className="section-sub">Searching live products...</p>
+            ) : searchError ? (
+              <div className="notice notice-error">Error: {searchError}</div>
             ) : searchResults.length === 0 ? (
               <p className="section-sub">No live results yet. Try a more specific name.</p>
             ) : (
@@ -183,7 +168,7 @@ function AddProduct() {
             id="target-input"
             className="input"
             value={targetPrice}
-            onChange={(e) => setTargetPrice(e.target.value)}
+            onChange={(event) => setTargetPrice(event.target.value)}
             placeholder="e.g. 1200"
             disabled={loading}
           />
