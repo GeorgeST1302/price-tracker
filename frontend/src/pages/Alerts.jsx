@@ -2,6 +2,23 @@ import { useEffect, useMemo, useState } from "react"
 
 import { apiJson } from "../lib/apiBaseUrl"
 
+function formatDeliveryNote(note) {
+  if (!note) return null
+
+  const value = String(note)
+  if (value.includes("Read timed out") || value.includes("HTTPConnectionPool")) {
+    return "Telegram timed out. The backend will retry on the next refresh or scheduled check."
+  }
+  if (value.includes("Unauthorized")) {
+    return "Telegram rejected the bot token. Update TELEGRAM_BOT_TOKEN in the backend environment."
+  }
+  if (value.includes("chat not found") || value.includes("Forbidden")) {
+    return "Telegram could not send to that chat. Make sure you started the bot and that TELEGRAM_CHAT_ID is correct."
+  }
+
+  return value
+}
+
 function Alerts() {
   const [products, setProducts] = useState([])
   const [alerts, setAlerts] = useState([])
@@ -210,7 +227,7 @@ function Alerts() {
                       <p className="section-sub">Telegram sent at: {new Date(alert.notification_sent_at).toLocaleString()}</p>
                     ) : null}
                     {alert.notification_error ? (
-                      <p className="section-sub">Delivery note: {alert.notification_error}</p>
+                      <p className="section-sub">Delivery note: {formatDeliveryNote(alert.notification_error)}</p>
                     ) : null}
                   </article>
                 )
