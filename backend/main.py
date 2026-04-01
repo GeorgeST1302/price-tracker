@@ -159,12 +159,20 @@ def _attach_product_insights(db: Session, product: models.Product) -> models.Pro
 
     product.purchase_url = _build_product_purchase_url(product)
     product.source = product.source or "Amazon India"
+    if not product.last_fetch_method:
+        latest_entry = _get_latest_price_entry(db, product.id)
+        if latest_entry and latest_entry.fetch_method:
+            product.last_fetch_method = latest_entry.fetch_method
 
     if reference_prices:
         latest_price = reference_prices[-1]
         average_7d = _mean(prices_7d)
         average_30d = _mean(prices_30d)
-        details = compute_recommendation_details(reference_prices, average_reference=average_30d)
+        details = compute_recommendation_details(
+            reference_prices,
+            average_reference=average_30d,
+            target_price=product.target_price,
+        )
 
         product.latest_price = latest_price
         product.trend = compute_trend(reference_prices[-10:]) if len(reference_prices) > 1 else None
@@ -252,6 +260,7 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
         asin=resolved_asin,
         image_url=product_data.get("image_url"),
         source=product_data.get("source") or "Amazon India",
+        last_fetch_method=product_data.get("fetch_method"),
         target_price=product.target_price,
         last_updated=datetime.utcnow(),
     )
@@ -260,7 +269,11 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
     db.commit()
     db.refresh(new_product)
 
-    price_entry = models.PriceHistory(product_id=new_product.id, price=float(product_data["price"]))
+    price_entry = models.PriceHistory(
+        product_id=new_product.id,
+        price=float(product_data["price"]),
+        fetch_method=product_data.get("fetch_method"),
+    )
     db.add(price_entry)
     new_product.last_updated = price_entry.timestamp
     db.commit()
@@ -327,8 +340,14 @@ def refresh_product_price(product_id: int, db: Session = Depends(get_db)):
         product.image_url = product_data["image_url"]
     if product_data.get("source"):
         product.source = product_data["source"]
+    if product_data.get("fetch_method"):
+        product.last_fetch_method = product_data["fetch_method"]
 
-    price_entry = models.PriceHistory(product_id=product.id, price=float(product_data["price"]))
+    price_entry = models.PriceHistory(
+        product_id=product.id,
+        price=float(product_data["price"]),
+        fetch_method=product_data.get("fetch_method"),
+    )
     db.add(price_entry)
     product.last_updated = price_entry.timestamp
     db.commit()
@@ -413,8 +432,14 @@ def _record_prices_for_all_products():
                     product.image_url = product_data["image_url"]
                 if product_data.get("source"):
                     product.source = product_data["source"]
+                if product_data.get("fetch_method"):
+                    product.last_fetch_method = product_data["fetch_method"]
 
-                entry = models.PriceHistory(product_id=product.id, price=float(product_data["price"]))
+                entry = models.PriceHistory(
+                    product_id=product.id,
+                    price=float(product_data["price"]),
+                    fetch_method=product_data.get("fetch_method"),
+                )
                 db.add(entry)
                 product.last_updated = entry.timestamp
                 db.commit()
@@ -465,6 +490,7 @@ def _seed_default_products_if_empty():
                 name=item["name"],
                 asin=item["asin"],
                 source="Amazon India",
+                last_fetch_method="seed",
                 target_price=item["target_price"],
                 last_updated=datetime.utcnow(),
             )
@@ -472,7 +498,7 @@ def _seed_default_products_if_empty():
             db.commit()
             db.refresh(product)
 
-            entry = models.PriceHistory(product_id=product.id, price=item["price"])
+            entry = models.PriceHistory(product_id=product.id, price=item["price"], fetch_method="seed")
             db.add(entry)
             product.last_updated = entry.timestamp
             db.commit()

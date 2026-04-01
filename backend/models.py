@@ -15,6 +15,7 @@ class Product(Base):
     asin = Column(String, unique=True)
     image_url = Column(String, nullable=True)
     source = Column(String, nullable=True)
+    last_fetch_method = Column(String, nullable=True)
     target_price = Column(Float)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_updated = Column(DateTime, default=datetime.utcnow)
@@ -40,6 +41,7 @@ class PriceHistory(Base):
     id = Column(Integer, primary_key=True)
     product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"))
     price = Column(Float)
+    fetch_method = Column(String, nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     product = relationship("Product", back_populates="price_history")

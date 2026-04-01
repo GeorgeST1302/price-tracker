@@ -43,6 +43,8 @@ def ensure_sqlite_schema():
 		_add_column_if_missing("products", "last_updated", "last_updated DATETIME")
 		_add_column_if_missing("products", "image_url", "image_url VARCHAR")
 		_add_column_if_missing("products", "source", "source VARCHAR")
+		_add_column_if_missing("products", "last_fetch_method", "last_fetch_method VARCHAR")
+		_add_column_if_missing("price_history", "fetch_method", "fetch_method VARCHAR")
 		_add_column_if_missing("alerts", "notification_sent_flag", "notification_sent_flag BOOLEAN DEFAULT 0")
 		_add_column_if_missing("alerts", "notification_sent_at", "notification_sent_at DATETIME")
 		_add_column_if_missing("alerts", "notification_error", "notification_error VARCHAR")

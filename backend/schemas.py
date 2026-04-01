@@ -13,6 +13,7 @@ class ProductResponse(BaseModel):
     name: str
     image_url: str | None = None
     source: str | None = None
+    last_fetch_method: str | None = None
     target_price: float
     created_at: datetime
     last_updated: datetime | None = None
@@ -36,6 +37,7 @@ class PriceHistoryResponse(BaseModel):
     id: int
     product_id: int
     price: float
+    fetch_method: str | None = None
     timestamp: datetime
 
     class Config:

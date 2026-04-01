@@ -81,6 +81,7 @@ def _normalize_output_item(item, asin: str):
         "price": normalized_price,
         "source": "Amazon India",
         "purchase_url": f"https://www.amazon.in/dp/{asin}",
+        "fetch_method": "zyte",
     }
 
 

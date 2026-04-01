@@ -6,4 +6,5 @@ def fetch_amazon_price_api(asin: str):
         "source": "Amazon India",
         "asin": asin,
         "purchase_url": f"https://www.amazon.in/dp/{asin}",
+        "fetch_method": "fallback",
     }

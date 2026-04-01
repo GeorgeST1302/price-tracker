@@ -201,6 +201,7 @@ def fetch_amazon_price_scraper(asin: str):
                         "source": "Amazon India",
                         "image_url": first.get("image_url"),
                         "purchase_url": first.get("product_url") or url,
+                        "fetch_method": "scraper_search_fallback",
                     }
             return None
 
@@ -210,6 +211,7 @@ def fetch_amazon_price_scraper(asin: str):
             "source": "Amazon India",
             "image_url": image_url,
             "purchase_url": url,
+            "fetch_method": "scraper",
         }
 
     except Exception as exc:
