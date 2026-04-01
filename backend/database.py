@@ -32,11 +32,18 @@ def ensure_sqlite_schema():
 			rows = conn.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
 		return any(r[1] == column_name for r in rows)
 
+	def _add_column_if_missing(table_name: str, column_name: str, ddl: str):
+		if _column_exists(table_name, column_name):
+			return
+		with engine.connect() as conn:
+			conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {ddl}"))
+			conn.commit()
+
 	try:
-		if not _column_exists("products", "last_updated"):
-			with engine.connect() as conn:
-				conn.execute(text("ALTER TABLE products ADD COLUMN last_updated DATETIME"))
-				conn.commit()
+		_add_column_if_missing("products", "last_updated", "last_updated DATETIME")
+		_add_column_if_missing("alerts", "notification_sent_flag", "notification_sent_flag BOOLEAN DEFAULT 0")
+		_add_column_if_missing("alerts", "notification_sent_at", "notification_sent_at DATETIME")
+		_add_column_if_missing("alerts", "notification_error", "notification_error VARCHAR")
 	except Exception:
 		# If DB is brand new, tables may not exist yet; create_all will handle it.
 		pass

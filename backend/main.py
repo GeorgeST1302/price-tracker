@@ -13,12 +13,14 @@ try:
     from . import models, schemas
     from .services.product_service import compute_recommendation, compute_trend, get_product_data, resolve_asin
     from .services.scraper_service import search_amazon_products
+    from .services.telegram_client import is_telegram_configured, send_triggered_alert
 except ImportError:
     from database import SessionLocal, engine, ensure_sqlite_schema
     import models
     import schemas
     from services.product_service import compute_recommendation, compute_trend, get_product_data, resolve_asin
     from services.scraper_service import search_amazon_products
+    from services.telegram_client import is_telegram_configured, send_triggered_alert
 
 # Create database tables
 models.Base.metadata.create_all(bind=engine)
@@ -66,6 +68,16 @@ def healthz():
     return {"status": "ok"}
 
 
+@app.get("/notifications/status")
+def notifications_status():
+    return {
+        "telegram_configured": is_telegram_configured(),
+        "channels": {
+            "telegram": is_telegram_configured(),
+        },
+    }
+
+
 def _get_recent_prices(db: Session, product_id: int, limit: int = 10) -> list[float]:
     rows = (
         db.query(models.PriceHistory)
@@ -101,6 +113,46 @@ def _attach_product_insights(db: Session, product: models.Product) -> models.Pro
         product.trend = None
         product.recommendation = None
     return product
+
+
+def _get_latest_price_entry(db: Session, product_id: int):
+    return (
+        db.query(models.PriceHistory)
+        .filter(models.PriceHistory.product_id == product_id)
+        .order_by(models.PriceHistory.timestamp.desc())
+        .first()
+    )
+
+
+def _notify_alert_if_possible(alert: models.Alert, product: models.Product, current_price: float, db: Session):
+    if alert.notification_sent_flag:
+        return
+
+    sent, error_message = send_triggered_alert(
+        product_name=product.name,
+        current_price=float(current_price),
+        target_price=float(alert.target_price),
+        product_id=product.id,
+    )
+    alert.notification_sent_flag = bool(sent)
+    alert.notification_sent_at = datetime.utcnow() if sent else None
+    alert.notification_error = None if sent else error_message
+    db.commit()
+
+
+def _trigger_alert_if_needed(alert: models.Alert, product: models.Product, current_price: float, db: Session):
+    if alert.triggered_flag:
+        if not alert.notification_sent_flag:
+            _notify_alert_if_possible(alert, product, current_price, db)
+        return
+
+    if current_price > float(alert.target_price):
+        return
+
+    alert.triggered_flag = True
+    alert.triggered_at = datetime.utcnow()
+    db.commit()
+    _notify_alert_if_possible(alert, product, current_price, db)
 
 
 # CREATE PRODUCT (NOW REAL DATA)
@@ -222,20 +274,15 @@ def refresh_product_price(product_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(price_entry)
 
-    # Also trigger alerts on manual refresh.
     try:
         current_price = float(price_entry.price)
         alerts = (
             db.query(models.Alert)
             .filter(models.Alert.product_id == product.id)
-            .filter(models.Alert.triggered_flag == False)  # noqa: E712
             .all()
         )
         for a in alerts:
-            if current_price <= float(a.target_price):
-                a.triggered_flag = True
-                a.triggered_at = datetime.utcnow()
-        db.commit()
+            _trigger_alert_if_needed(a, product, current_price, db)
     except Exception:
         db.rollback()
     return price_entry
@@ -272,6 +319,15 @@ def create_alert(alert: schemas.AlertCreate, db: Session = Depends(get_db)):
     db.add(new_alert)
     db.commit()
     db.refresh(new_alert)
+
+    latest_entry = _get_latest_price_entry(db, product.id)
+    if latest_entry and latest_entry.price is not None:
+        try:
+            _trigger_alert_if_needed(new_alert, product, float(latest_entry.price), db)
+            db.refresh(new_alert)
+        except Exception:
+            db.rollback()
+
     return new_alert
 
 
@@ -314,14 +370,10 @@ def _record_prices_for_all_products():
                     alerts = (
                         db.query(models.Alert)
                         .filter(models.Alert.product_id == product.id)
-                        .filter(models.Alert.triggered_flag == False)  # noqa: E712
                         .all()
                     )
                     for a in alerts:
-                        if current_price <= float(a.target_price):
-                            a.triggered_flag = True
-                            a.triggered_at = datetime.utcnow()
-                    db.commit()
+                        _trigger_alert_if_needed(a, product, current_price, db)
                 except Exception:
                     db.rollback()
             except Exception:

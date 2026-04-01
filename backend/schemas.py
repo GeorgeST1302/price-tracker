@@ -50,8 +50,11 @@ class AlertResponse(BaseModel):
     product_id: int
     target_price: float
     triggered_flag: bool
+    notification_sent_flag: bool
     created_at: datetime
     triggered_at: datetime | None = None
+    notification_sent_at: datetime | None = None
+    notification_error: str | None = None
 
     class Config:
         from_attributes = True

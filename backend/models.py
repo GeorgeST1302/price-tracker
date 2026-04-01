@@ -50,7 +50,10 @@ class Alert(Base):
     product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), index=True)
     target_price = Column(Float)
     triggered_flag = Column(Boolean, default=False)
+    notification_sent_flag = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     triggered_at = Column(DateTime, nullable=True)
+    notification_sent_at = Column(DateTime, nullable=True)
+    notification_error = Column(String, nullable=True)
 
     product = relationship("Product", back_populates="alerts")
