@@ -6,8 +6,8 @@ import { formatCurrency } from "../lib/formatters"
 
 function rangeToQuery(range) {
   if (range === "7d") return "?days=7&limit=120"
-  if (range === "30d") return "?days=30&limit=240"
-  return "?limit=240"
+  if (range === "30d") return "?days=30&limit=200"
+  return "?limit=200"
 }
 
 function History() {

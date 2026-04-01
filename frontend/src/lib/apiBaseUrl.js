@@ -17,6 +17,54 @@ const DEFAULT_TIMEOUT_MS = 20000
 export const API_TIMEOUT_MESSAGE =
   "The backend is taking too long to respond. If Render is waking the API up, wait a few seconds and try again."
 
+function formatFastApiDetail(detail) {
+  if (!detail) return null
+
+  if (typeof detail === "string") {
+    return detail
+  }
+
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        if (!item || typeof item !== "object") return null
+        const field = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : null
+        const message = item.msg || item.message
+        if (!message) return null
+        return field ? `${field}: ${message}` : message
+      })
+      .filter(Boolean)
+
+    return messages.length ? messages.join(" ") : null
+  }
+
+  if (typeof detail === "object" && detail.message) {
+    return String(detail.message)
+  }
+
+  return null
+}
+
+async function extractApiErrorMessage(response) {
+  const fallback = `HTTP ${response.status} ${response.statusText}`.trim()
+
+  try {
+    const contentType = response.headers.get("content-type") || ""
+
+    if (contentType.includes("application/json")) {
+      const payload = await response.json()
+      const detailMessage = formatFastApiDetail(payload?.detail)
+      if (detailMessage) return detailMessage
+      return fallback
+    }
+
+    const bodyText = await response.text().catch(() => "")
+    return bodyText || fallback
+  } catch {
+    return fallback
+  }
+}
+
 function withTimeout(signal, timeoutMs) {
   const controller = new AbortController()
   const timeoutId = window.setTimeout(() => controller.abort(new Error(API_TIMEOUT_MESSAGE)), timeoutMs)
@@ -63,8 +111,8 @@ export async function apiRequest(path, options = {}) {
     })
 
     if (!response.ok) {
-      const bodyText = await response.text().catch(() => "")
-      throw new Error(`HTTP ${response.status} ${response.statusText}${bodyText ? ` - ${bodyText}` : ""}`)
+      const message = await extractApiErrorMessage(response)
+      throw new Error(message)
     }
 
     return response

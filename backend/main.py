@@ -301,7 +301,7 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
 def get_product_history(
     product_id: int,
     days: int | None = Query(default=None, ge=1, le=365),
-    limit: int | None = Query(default=None, ge=1, le=200),
+    limit: int | None = Query(default=None, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
