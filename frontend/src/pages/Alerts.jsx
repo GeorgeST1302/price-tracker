@@ -24,8 +24,10 @@ function Alerts() {
   const [alerts, setAlerts] = useState([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [testing, setTesting] = useState(false)
   const [error, setError] = useState(null)
   const [createdMsg, setCreatedMsg] = useState(null)
+  const [testMsg, setTestMsg] = useState(null)
   const [notificationStatus, setNotificationStatus] = useState(null)
 
   const [productId, setProductId] = useState("")
@@ -72,6 +74,7 @@ function Alerts() {
     event.preventDefault()
     setError(null)
     setCreatedMsg(null)
+    setTestMsg(null)
 
     const parsedTarget = Number(targetPrice)
     const parsedProductId = Number(productId)
@@ -110,6 +113,21 @@ function Alerts() {
     }
   }
 
+  async function handleSendTest() {
+    setError(null)
+    setTestMsg(null)
+    setTesting(true)
+
+    try {
+      const result = await apiJson("/notifications/test", { method: "POST" })
+      setTestMsg(result?.detail || (result?.sent ? "Telegram test sent." : "Telegram test failed."))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setTesting(false)
+    }
+  }
+
   const byProductId = useMemo(() => new Map(products.map((product) => [Number(product.id), product])), [products])
   const pendingAlerts = alerts.filter((alert) => !alert.triggered_flag)
   const triggeredAlerts = alerts.filter((alert) => alert.triggered_flag)
@@ -121,7 +139,12 @@ function Alerts() {
           <h2>Alerts</h2>
           <p className="section-sub">Create alerts now, then track both pending and triggered price drops here.</p>
         </div>
-        <span className="kbd">Auto-checked on scheduled updates</span>
+        <div className="row">
+          <button className="button button-secondary button-small" type="button" onClick={handleSendTest} disabled={testing}>
+            {testing ? "Sending..." : "Test Telegram"}
+          </button>
+          <span className="kbd">Auto-checked on scheduled updates</span>
+        </div>
       </div>
 
       {notificationStatus ? (
@@ -136,6 +159,7 @@ function Alerts() {
 
       {error ? <div className="notice notice-error">Error: {error}</div> : null}
       {createdMsg ? <div className="notice notice-success">{createdMsg}</div> : null}
+      {testMsg ? <div className="notice notice-success">{testMsg}</div> : null}
 
       <form className="card stack" onSubmit={handleCreate}>
         <h3>Create Alert</h3>

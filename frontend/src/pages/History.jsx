@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react"
 
+import PriceChart from "../components/PriceChart"
 import { apiJson } from "../lib/apiBaseUrl"
+import { formatCurrency } from "../lib/formatters"
+
+function rangeToQuery(range) {
+  if (range === "7d") return "?days=7&limit=120"
+  if (range === "30d") return "?days=30&limit=240"
+  return "?limit=240"
+}
 
 function History() {
   const [products, setProducts] = useState([])
   const [selectedProductId, setSelectedProductId] = useState("")
   const [history, setHistory] = useState([])
+  const [range, setRange] = useState("30d")
   const [loadingProducts, setLoadingProducts] = useState(true)
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [error, setError] = useState(null)
@@ -31,18 +40,17 @@ function History() {
     }
 
     void loadProducts()
-
     return () => {
       cancelled = true
     }
   }, [])
 
-  async function loadHistory(productId) {
+  async function loadHistory(productId, nextRange = range) {
     setLoadingHistory(true)
     setError(null)
 
     try {
-      const data = await apiJson(`/products/${productId}/history`)
+      const data = await apiJson(`/products/${productId}/history${rangeToQuery(nextRange)}`)
       setHistory(Array.isArray(data) ? data : [])
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -52,6 +60,11 @@ function History() {
     }
   }
 
+  useEffect(() => {
+    if (!selectedProductId) return
+    void loadHistory(selectedProductId, range)
+  }, [selectedProductId, range])
+
   async function refreshNow() {
     if (!selectedProductId) return
 
@@ -59,7 +72,7 @@ function History() {
 
     try {
       await apiJson(`/products/${selectedProductId}/refresh`, { method: "POST" })
-      await loadHistory(selectedProductId)
+      await loadHistory(selectedProductId, range)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -71,8 +84,8 @@ function History() {
     <section className="stack">
       <div className="section-head">
         <div>
-          <h2>Price History</h2>
-          <p className="section-sub">Inspect timeline data and refresh a product instantly.</p>
+          <h2>Price history</h2>
+          <p className="section-sub">Inspect 7-day and 30-day movement, then compare current price against the recent range.</p>
         </div>
       </div>
 
@@ -93,11 +106,10 @@ function History() {
               id="history-product-select"
               className="select"
               value={selectedProductId}
-              onChange={async (event) => {
+              onChange={(event) => {
                 const nextId = event.target.value
                 setSelectedProductId(nextId)
                 setHistory([])
-                if (nextId) await loadHistory(nextId)
               }}
             >
               <option value="">Select...</option>
@@ -122,7 +134,9 @@ function History() {
           <p>
             <b>{selectedProduct.name}</b>
           </p>
-          <p>Target: Rs. {selectedProduct.target_price}</p>
+          <p className="section-sub">
+            Target: {formatCurrency(selectedProduct.target_price)} | Source: {selectedProduct.source || "Tracked source"}
+          </p>
         </div>
       ) : null}
 
@@ -135,23 +149,27 @@ function History() {
         ) : history.length === 0 ? (
           <div className="notice">No price history yet.</div>
         ) : (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Timestamp</th>
-                  <th>Price</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((entry) => (
-                  <tr key={entry.id}>
-                    <td>{new Date(entry.timestamp).toLocaleString()}</td>
-                    <td>Rs. {entry.price}</td>
+          <div className="stack">
+            <PriceChart history={history} range={range} onRangeChange={setRange} />
+
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Price</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {history.map((entry) => (
+                    <tr key={entry.id}>
+                      <td>{new Date(entry.timestamp).toLocaleString()}</td>
+                      <td>{formatCurrency(entry.price)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )
       ) : null}

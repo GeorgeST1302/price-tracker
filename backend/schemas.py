@@ -11,12 +11,22 @@ class ProductCreate(BaseModel):
 class ProductResponse(BaseModel):
     id: int
     name: str
+    image_url: str | None = None
+    source: str | None = None
     target_price: float
     created_at: datetime
     last_updated: datetime | None = None
     latest_price: float | None = None
     trend: str | None = None
     recommendation: str | None = None
+    recommendation_reason: str | None = None
+    purchase_url: str | None = None
+    average_7d: float | None = None
+    average_30d: float | None = None
+    delta_from_avg: float | None = None
+    delta_from_avg_pct: float | None = None
+    prediction: str | None = None
+    prediction_confidence: str | None = None
 
     class Config:
         from_attributes = True
@@ -38,6 +48,8 @@ class ProductSearchResult(BaseModel):
     image_url: str | None = None
     price: float | None = None
     seller: str | None = None
+    source: str | None = None
+    product_url: str | None = None
 
 
 class AlertCreate(BaseModel):

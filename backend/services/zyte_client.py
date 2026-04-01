@@ -79,7 +79,8 @@ def _normalize_output_item(item, asin: str):
         "asin": item.get("asin") or asin,
         "title": title,
         "price": normalized_price,
-        "source": "zyte",
+        "source": "Amazon India",
+        "purchase_url": f"https://www.amazon.in/dp/{asin}",
     }
 
 

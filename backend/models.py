@@ -13,6 +13,8 @@ class Product(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String)
     asin = Column(String, unique=True)
+    image_url = Column(String, nullable=True)
+    source = Column(String, nullable=True)
     target_price = Column(Float)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_updated = Column(DateTime, default=datetime.utcnow)

@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react"
 
+import SearchHistory from "../components/SearchHistory"
 import { apiJson } from "../lib/apiBaseUrl"
+import { formatCurrency } from "../lib/formatters"
+import { clearRecentSearches, readRecentSearches, saveRecentSearch } from "../lib/recentSearches"
 
 function AddProduct() {
   const [productName, setProductName] = useState("")
@@ -12,6 +15,11 @@ function AddProduct() {
   const [selectedPreview, setSelectedPreview] = useState(null)
   const [error, setError] = useState(null)
   const [created, setCreated] = useState(null)
+  const [recentSearches, setRecentSearches] = useState([])
+
+  useEffect(() => {
+    setRecentSearches(readRecentSearches())
+  }, [])
 
   useEffect(() => {
     const term = productName.trim()
@@ -65,12 +73,17 @@ function AddProduct() {
     const parsedTarget = Number(targetPrice)
 
     if (!trimmedProductName) {
-      setError("Enter a product name")
+      setError("Enter a product name to search and track.")
+      return
+    }
+
+    if (trimmedProductName.length < 2) {
+      setError("Use at least 2 characters so we can search for the correct product.")
       return
     }
 
     if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) {
-      setError("Target price must be a positive number")
+      setError("Target price must be a positive number.")
       return
     }
 
@@ -87,6 +100,7 @@ function AddProduct() {
       })
 
       setCreated(data)
+      setRecentSearches(saveRecentSearch(trimmedProductName))
       setProductName("")
       setTargetPrice("")
       setSearchResults([])
@@ -102,8 +116,8 @@ function AddProduct() {
     <section className="stack">
       <div className="section-head">
         <div>
-          <h2>Add Product</h2>
-          <p className="section-sub">Track a new item by product name and set your optimal buy threshold.</p>
+          <h2>Add product</h2>
+          <p className="section-sub">Search a product, compare the live preview, then lock in the price threshold that matters to you.</p>
         </div>
       </div>
 
@@ -115,21 +129,33 @@ function AddProduct() {
             className="input"
             value={productName}
             onChange={(event) => setProductName(event.target.value)}
-            placeholder="e.g. logitech mouse"
+            placeholder="e.g. Logitech M331 Silent Plus"
             disabled={loading}
           />
         </label>
+
+        <SearchHistory
+          items={recentSearches}
+          onSelect={(value) => setProductName(value)}
+          onClear={() => {
+            clearRecentSearches()
+            setRecentSearches([])
+          }}
+        />
 
         {productName.trim().length >= 2 ? (
           <div className="stack">
             <p className="section-sub">Live search results</p>
 
             {searchLoading ? (
-              <p className="section-sub">Searching live products...</p>
+              <div className="row">
+                <span className="spinner" aria-label="Loading" />
+                <span className="section-sub">Searching live products...</span>
+              </div>
             ) : searchError ? (
               <div className="notice notice-error">Error: {searchError}</div>
             ) : searchResults.length === 0 ? (
-              <p className="section-sub">No live results yet. Try a more specific name.</p>
+              <div className="notice">No live results yet. Try a more specific product name.</div>
             ) : (
               <div className="live-grid">
                 {searchResults.map((item) => {
@@ -151,8 +177,8 @@ function AddProduct() {
                       />
                       <div className="live-card-body">
                         <p className="live-title">{item.title}</p>
-                        <p className="section-sub">Seller: {item.seller || "Marketplace seller"}</p>
-                        <p className="live-price">{Number.isFinite(item.price) ? `Rs. ${item.price}` : "Price unavailable"}</p>
+                        <p className="section-sub">{item.source || item.seller || "Marketplace listing"}</p>
+                        <p className="live-price">{formatCurrency(item.price)}</p>
                       </div>
                     </button>
                   )
@@ -160,7 +186,9 @@ function AddProduct() {
               </div>
             )}
           </div>
-        ) : null}
+        ) : (
+          <div className="notice">Start typing a product name to see live search previews from your source marketplace.</div>
+        )}
 
         <label className="stack" htmlFor="target-input">
           <span>Target price</span>
@@ -178,7 +206,7 @@ function AddProduct() {
           <button className="button" type="submit" disabled={loading}>
             {loading ? "Adding..." : "Start Tracking"}
           </button>
-          <span className="section-sub">Select a live result to preview seller and current price before tracking.</span>
+          <span className="section-sub">Pick the live result that matches best to store richer details like image, source, and purchase link.</span>
         </div>
       </form>
 
@@ -186,7 +214,7 @@ function AddProduct() {
 
       {created ? (
         <div className="notice notice-success">
-          Added <b>{created.name}</b> | Target: Rs. {created.target_price}
+          Added <b>{created.name}</b>. Current price: {formatCurrency(created.latest_price)}. Target: {formatCurrency(created.target_price)}.
         </div>
       ) : null}
     </section>

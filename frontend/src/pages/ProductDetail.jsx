@@ -1,19 +1,27 @@
-import { useEffect, useRef, useState } from "react"
-import Chart from "chart.js/auto"
+import { useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "react-router-dom"
 
+import PriceChart from "../components/PriceChart"
+import ProductCard from "../components/ProductCard"
 import { apiJson } from "../lib/apiBaseUrl"
+import { formatCurrency } from "../lib/formatters"
+
+function rangeToQuery(range) {
+  if (range === "7d") return "?days=7&limit=120"
+  if (range === "30d") return "?days=30&limit=240"
+  return "?limit=240"
+}
 
 function ProductDetail() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [products, setProducts] = useState([])
   const [selectedProductId, setSelectedProductId] = useState("")
   const [history, setHistory] = useState([])
+  const [range, setRange] = useState("30d")
   const [loading, setLoading] = useState(true)
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
-
-  const chartRef = useRef(null)
-  const canvasRef = useRef(null)
 
   useEffect(() => {
     let cancelled = false
@@ -25,7 +33,13 @@ function ProductDetail() {
       try {
         const data = await apiJson("/products")
         if (cancelled) return
-        setProducts(Array.isArray(data) ? data : [])
+        const safe = Array.isArray(data) ? data : []
+        setProducts(safe)
+
+        const paramId = searchParams.get("product")
+        if (paramId && safe.some((product) => String(product.id) === String(paramId))) {
+          setSelectedProductId(String(paramId))
+        }
       } catch (err) {
         if (cancelled) return
         setError(err instanceof Error ? err.message : String(err))
@@ -35,18 +49,17 @@ function ProductDetail() {
     }
 
     void loadProducts()
-
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [searchParams])
 
-  async function loadHistory(productId) {
+  async function loadHistory(productId, nextRange = range) {
     setLoadingHistory(true)
     setError(null)
 
     try {
-      const data = await apiJson(`/products/${productId}/history?limit=60`)
+      const data = await apiJson(`/products/${productId}/history${rangeToQuery(nextRange)}`)
       setHistory(Array.isArray(data) ? data : [])
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -57,56 +70,9 @@ function ProductDetail() {
   }
 
   useEffect(() => {
-    if (!canvasRef.current) return undefined
-
-    if (chartRef.current) {
-      chartRef.current.destroy()
-      chartRef.current = null
-    }
-
-    if (!history || history.length < 2) return undefined
-
-    const points = [...history].reverse()
-    const labels = points.map((entry) => {
-      const date = new Date(entry.timestamp)
-      return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`
-    })
-    const prices = points.map((entry) => Number(entry.price))
-
-    chartRef.current = new Chart(canvasRef.current, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [
-          {
-            label: "Price (Rs.)",
-            data: prices,
-            tension: 0.25,
-            borderWidth: 2,
-            pointRadius: 2,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: true },
-        },
-        scales: {
-          x: { ticks: { maxRotation: 0, autoSkip: true } },
-          y: { beginAtZero: false },
-        },
-      },
-    })
-
-    return () => {
-      if (chartRef.current) {
-        chartRef.current.destroy()
-        chartRef.current = null
-      }
-    }
-  }, [history])
+    if (!selectedProductId) return
+    void loadHistory(selectedProductId, range)
+  }, [selectedProductId, range])
 
   async function refreshNow() {
     if (!selectedProductId) return
@@ -116,7 +82,9 @@ function ProductDetail() {
 
     try {
       await apiJson(`/products/${selectedProductId}/refresh`, { method: "POST" })
-      await loadHistory(selectedProductId)
+      const updatedProducts = await apiJson("/products")
+      setProducts(Array.isArray(updatedProducts) ? updatedProducts : [])
+      await loadHistory(selectedProductId, range)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -124,17 +92,17 @@ function ProductDetail() {
     }
   }
 
-  const selectedProduct = products.find((product) => String(product.id) === String(selectedProductId))
-  const latestPrice = history[0]?.price
-  const isDropped =
-    selectedProduct && Number.isFinite(Number(latestPrice)) && Number(latestPrice) <= Number(selectedProduct.target_price)
+  const selectedProduct = useMemo(
+    () => products.find((product) => String(product.id) === String(selectedProductId)),
+    [products, selectedProductId]
+  )
 
   return (
     <section className="stack">
       <div className="section-head">
         <div>
-          <h2>Product Detail</h2>
-          <p className="section-sub">Inspect one product deeply and trigger instant refresh.</p>
+          <h2>Product detail</h2>
+          <p className="section-sub">Inspect one product deeply, compare it with recent history, and refresh instantly when you want a new reading.</p>
         </div>
       </div>
 
@@ -155,11 +123,11 @@ function ProductDetail() {
               id="detail-select"
               className="select"
               value={selectedProductId}
-              onChange={async (event) => {
+              onChange={(event) => {
                 const nextId = event.target.value
                 setSelectedProductId(nextId)
                 setHistory([])
-                if (nextId) await loadHistory(nextId)
+                setSearchParams(nextId ? { product: nextId } : {})
               }}
             >
               <option value="">Select...</option>
@@ -171,23 +139,31 @@ function ProductDetail() {
             </select>
           </label>
 
-          <button className="button" type="button" disabled={!selectedProductId || refreshing} onClick={refreshNow}>
-            {refreshing ? "Refreshing..." : "Refresh Price"}
-          </button>
+          <div className="row">
+            <button className="button" type="button" disabled={!selectedProductId || refreshing} onClick={refreshNow}>
+              {refreshing ? "Refreshing..." : "Refresh Price"}
+            </button>
+          </div>
         </div>
       )}
 
       {selectedProduct ? (
-        <div className="card stack">
-          <h3>{selectedProduct.name}</h3>
-          <div className="row">
-            <span>Target: Rs. {selectedProduct.target_price}</span>
-            <span>Latest: {Number.isFinite(Number(latestPrice)) ? `Rs. ${latestPrice}` : "N/A"}</span>
-            {isDropped ? <span className="badge badge-good">Price dropped!</span> : null}
-          </div>
-          <p className="section-sub">Last updated: {selectedProduct.last_updated ? new Date(selectedProduct.last_updated).toLocaleString() : "-"}</p>
-          <p className="section-sub">Recommendation: {selectedProduct.recommendation || "-"} | Trend: {selectedProduct.trend || "-"}</p>
-        </div>
+        <ProductCard
+          product={selectedProduct}
+          footer={
+            <p className="section-sub">
+              Latest snapshot: {formatCurrency(selectedProduct.latest_price)} | Last updated:{" "}
+              {selectedProduct.last_updated ? new Date(selectedProduct.last_updated).toLocaleString() : "-"}
+            </p>
+          }
+          actions={
+            selectedProduct.purchase_url ? (
+              <a className="button" href={selectedProduct.purchase_url} target="_blank" rel="noreferrer">
+                Buy Now
+              </a>
+            ) : null
+          }
+        />
       ) : null}
 
       {selectedProductId ? (
@@ -197,16 +173,10 @@ function ProductDetail() {
             <span>Loading price history...</span>
           </div>
         ) : history.length === 0 ? (
-          <div className="notice">No price history yet.</div>
+          <div className="notice">No price history yet. Refresh the product to create the next price point.</div>
         ) : (
           <div className="stack">
-            <div className="card stack">
-              <h3>Price Trend</h3>
-              <div style={{ height: 260 }}>
-                <canvas ref={canvasRef} />
-              </div>
-              <p className="section-sub">Chart updates instantly after a refresh.</p>
-            </div>
+            <PriceChart history={history} range={range} onRangeChange={setRange} />
 
             <div className="table-wrap">
               <table className="table">
@@ -220,7 +190,7 @@ function ProductDetail() {
                   {history.map((entry) => (
                     <tr key={entry.id}>
                       <td>{new Date(entry.timestamp).toLocaleString()}</td>
-                      <td>Rs. {entry.price}</td>
+                      <td>{formatCurrency(entry.price)}</td>
                     </tr>
                   ))}
                 </tbody>

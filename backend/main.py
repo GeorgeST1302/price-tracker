@@ -1,28 +1,38 @@
-import os
 import importlib
+import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 try:
-    from .database import SessionLocal, engine, ensure_sqlite_schema
     from . import models, schemas
-    from .services.product_service import compute_recommendation, compute_trend, get_product_data, resolve_asin
+    from .database import SessionLocal, engine, ensure_sqlite_schema
+    from .services.product_service import (
+        compute_recommendation_details,
+        compute_trend,
+        get_product_data,
+        resolve_asin,
+    )
     from .services.scraper_service import search_amazon_products
     from .services.telegram_client import is_telegram_configured, send_triggered_alert
 except ImportError:
-    from database import SessionLocal, engine, ensure_sqlite_schema
     import models
     import schemas
-    from services.product_service import compute_recommendation, compute_trend, get_product_data, resolve_asin
+    from database import SessionLocal, engine, ensure_sqlite_schema
+    from services.product_service import (
+        compute_recommendation_details,
+        compute_trend,
+        get_product_data,
+        resolve_asin,
+    )
     from services.scraper_service import search_amazon_products
     from services.telegram_client import is_telegram_configured, send_triggered_alert
 
-# Create database tables
+
 models.Base.metadata.create_all(bind=engine)
 ensure_sqlite_schema()
 
@@ -35,12 +45,10 @@ def _parse_cors_origins_from_env() -> list[str]:
         return []
     return [origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()]
 
-# CORS: allow the Vite dev server to call the API from the browser.
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_parse_cors_origins_from_env(),
-    # Vite may auto-increment ports (5173 -> 5174, etc.).
-    # Also allow Render static-site domains by default.
     allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://[a-z0-9-]+\.onrender\.com$",
     allow_credentials=True,
     allow_methods=["*"],
@@ -48,7 +56,6 @@ app.add_middleware(
 )
 
 
-# Dependency to get DB session
 def get_db():
     db = SessionLocal()
     try:
@@ -57,7 +64,6 @@ def get_db():
         db.close()
 
 
-# Root endpoint
 @app.api_route("/", methods=["GET", "HEAD"])
 def root():
     return {"message": "PricePulse API is running successfully"}
@@ -70,49 +76,70 @@ def healthz():
 
 @app.get("/notifications/status")
 def notifications_status():
+    configured = is_telegram_configured()
     return {
-        "telegram_configured": is_telegram_configured(),
+        "telegram_configured": configured,
         "channels": {
-            "telegram": is_telegram_configured(),
+            "telegram": configured,
         },
     }
 
 
-def _get_recent_prices(db: Session, product_id: int, limit: int = 10) -> list[float]:
-    rows = (
-        db.query(models.PriceHistory)
-        .filter(models.PriceHistory.product_id == product_id)
-        .order_by(models.PriceHistory.timestamp.desc())
-        .limit(max(5, min(10, int(limit))))
-        .all()
+@app.post("/notifications/test")
+def test_notification():
+    sent, error_message = send_triggered_alert(
+        product_name="PricePulse test alert",
+        current_price=1499.0,
+        target_price=1999.0,
+        product_id=0,
     )
+    return {
+        "sent": bool(sent),
+        "detail": "Test alert delivered to Telegram." if sent else (error_message or "Telegram delivery failed."),
+    }
 
-    # Convert to chronological (oldest -> newest).
+
+def _build_product_purchase_url(product: models.Product) -> str | None:
+    asin = (product.asin or "").strip()
+    if not asin:
+        return None
+    return f"https://www.amazon.in/dp/{asin}"
+
+
+def _mean(values: list[float]) -> float | None:
+    cleaned = [float(value) for value in values if value is not None]
+    if not cleaned:
+        return None
+    return sum(cleaned) / len(cleaned)
+
+
+def _get_history_rows(
+    db: Session,
+    product_id: int,
+    *,
+    days: int | None = None,
+    limit: int | None = None,
+    descending: bool = True,
+):
+    query = db.query(models.PriceHistory).filter(models.PriceHistory.product_id == product_id)
+
+    if days is not None:
+        since = datetime.utcnow() - timedelta(days=int(days))
+        query = query.filter(models.PriceHistory.timestamp >= since)
+
+    order_column = models.PriceHistory.timestamp.desc() if descending else models.PriceHistory.timestamp.asc()
+    query = query.order_by(order_column)
+
+    if limit is not None:
+        query = query.limit(int(limit))
+
+    return query.all()
+
+
+def _get_recent_prices(db: Session, product_id: int, limit: int = 10) -> list[float]:
+    rows = _get_history_rows(db, product_id, limit=max(5, min(30, int(limit))), descending=True)
     rows.reverse()
-    return [float(r.price) for r in rows if r.price is not None]
-
-
-def _attach_product_insights(db: Session, product: models.Product) -> models.Product:
-    prices = _get_recent_prices(db, product.id, limit=10)
-    if prices:
-        product.latest_price = prices[-1]
-        product.trend = compute_trend(prices)
-        product.recommendation = compute_recommendation(prices)
-        # If last_updated wasn't set for legacy rows, infer from newest history.
-        if not product.last_updated:
-            newest = (
-                db.query(models.PriceHistory)
-                .filter(models.PriceHistory.product_id == product.id)
-                .order_by(models.PriceHistory.timestamp.desc())
-                .first()
-            )
-            if newest:
-                product.last_updated = newest.timestamp
-    else:
-        product.latest_price = None
-        product.trend = None
-        product.recommendation = None
-    return product
+    return [float(row.price) for row in rows if row.price is not None]
 
 
 def _get_latest_price_entry(db: Session, product_id: int):
@@ -122,6 +149,51 @@ def _get_latest_price_entry(db: Session, product_id: int):
         .order_by(models.PriceHistory.timestamp.desc())
         .first()
     )
+
+
+def _attach_product_insights(db: Session, product: models.Product) -> models.Product:
+    prices_recent = _get_recent_prices(db, product.id, limit=10)
+    prices_7d = [float(row.price) for row in _get_history_rows(db, product.id, days=7, descending=False) if row.price is not None]
+    prices_30d = [float(row.price) for row in _get_history_rows(db, product.id, days=30, descending=False) if row.price is not None]
+    reference_prices = prices_30d or prices_recent
+
+    product.purchase_url = _build_product_purchase_url(product)
+    product.source = product.source or "Amazon India"
+
+    if reference_prices:
+        latest_price = reference_prices[-1]
+        average_7d = _mean(prices_7d)
+        average_30d = _mean(prices_30d)
+        details = compute_recommendation_details(reference_prices, average_reference=average_30d)
+
+        product.latest_price = latest_price
+        product.trend = compute_trend(reference_prices[-10:]) if len(reference_prices) > 1 else None
+        product.recommendation = details.get("recommendation")
+        product.recommendation_reason = details.get("recommendation_reason")
+        product.average_7d = average_7d
+        product.average_30d = average_30d
+        product.delta_from_avg = details.get("delta_from_avg")
+        product.delta_from_avg_pct = details.get("delta_from_avg_pct")
+        product.prediction = details.get("prediction")
+        product.prediction_confidence = details.get("prediction_confidence")
+
+        if not product.last_updated:
+            newest = _get_latest_price_entry(db, product.id)
+            if newest:
+                product.last_updated = newest.timestamp
+    else:
+        product.latest_price = None
+        product.trend = None
+        product.recommendation = None
+        product.recommendation_reason = None
+        product.average_7d = None
+        product.average_30d = None
+        product.delta_from_avg = None
+        product.delta_from_avg_pct = None
+        product.prediction = None
+        product.prediction_confidence = None
+
+    return product
 
 
 def _notify_alert_if_possible(alert: models.Alert, product: models.Product, current_price: float, db: Session):
@@ -155,7 +227,6 @@ def _trigger_alert_if_needed(alert: models.Alert, product: models.Product, curre
     _notify_alert_if_possible(alert, product, current_price, db)
 
 
-# CREATE PRODUCT (NOW REAL DATA)
 @app.post("/products", response_model=schemas.ProductResponse)
 def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)):
     requested_asin = (product.asin or "").strip().upper()
@@ -165,21 +236,22 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
     if not resolved_asin:
         raise HTTPException(
             status_code=400,
-            detail="Could not find a matching product on Amazon for that product name",
+            detail="Could not find a matching product for that name. Try a more specific search term.",
         )
 
     existing = db.query(models.Product).filter(models.Product.asin == resolved_asin).first()
     if existing:
-        raise HTTPException(status_code=409, detail="Product already tracked")
+        raise HTTPException(status_code=409, detail="That product is already being tracked.")
 
-    # 🔥 Fetch real data (scraper or fallback)
     product_data = get_product_data(resolved_asin)
     if not product_data or "title" not in product_data or "price" not in product_data:
-        raise HTTPException(status_code=502, detail="Failed to fetch product details from Amazon")
+        raise HTTPException(status_code=502, detail="Failed to fetch product details right now.")
 
     new_product = models.Product(
         name=product_data["title"],
         asin=resolved_asin,
+        image_url=product_data.get("image_url"),
+        source=product_data.get("source") or "Amazon India",
         target_price=product.target_price,
         last_updated=datetime.utcnow(),
     )
@@ -188,22 +260,15 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
     db.commit()
     db.refresh(new_product)
 
-    # 🔥 Store first price entry
-    price_entry = models.PriceHistory(
-        product_id=new_product.id,
-        price=product_data["price"]
-    )
-
+    price_entry = models.PriceHistory(product_id=new_product.id, price=float(product_data["price"]))
     db.add(price_entry)
     new_product.last_updated = price_entry.timestamp
     db.commit()
 
     _attach_product_insights(db, new_product)
-
     return new_product
 
 
-# GET ALL PRODUCTS
 @app.get("/products", response_model=list[schemas.ProductResponse])
 def get_products(q: str | None = Query(default=None), db: Session = Depends(get_db)):
     query = db.query(models.Product)
@@ -213,8 +278,8 @@ def get_products(q: str | None = Query(default=None), db: Session = Depends(get_
         query = query.filter(func.lower(models.Product.name).like(term))
 
     products = query.order_by(models.Product.created_at.desc()).all()
-    for p in products:
-        _attach_product_insights(db, p)
+    for product in products:
+        _attach_product_insights(db, product)
     return products
 
 
@@ -232,10 +297,10 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
     return product
 
 
-# GET PRICE HISTORY FOR A PRODUCT
 @app.get("/products/{product_id}/history", response_model=list[schemas.PriceHistoryResponse])
 def get_product_history(
     product_id: int,
+    days: int | None = Query(default=None, ge=1, le=365),
     limit: int | None = Query(default=None, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
@@ -243,17 +308,9 @@ def get_product_history(
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    query = (
-        db.query(models.PriceHistory)
-        .filter(models.PriceHistory.product_id == product_id)
-        .order_by(models.PriceHistory.timestamp.desc())
-    )
-    if limit is not None:
-        query = query.limit(int(limit))
-    return query.all()
+    return _get_history_rows(db, product_id, days=days, limit=limit, descending=True)
 
 
-# MANUALLY REFRESH PRICE (SCRAPE NOW + STORE)
 @app.post("/products/{product_id}/refresh", response_model=schemas.PriceHistoryResponse)
 def refresh_product_price(product_id: int, db: Session = Depends(get_db)):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
@@ -264,9 +321,12 @@ def refresh_product_price(product_id: int, db: Session = Depends(get_db)):
     if not product_data or "price" not in product_data:
         raise HTTPException(status_code=502, detail="Failed to fetch price")
 
-    # Keep name in sync if scraper returns it.
     if product_data.get("title"):
         product.name = product_data["title"]
+    if product_data.get("image_url"):
+        product.image_url = product_data["image_url"]
+    if product_data.get("source"):
+        product.source = product_data["source"]
 
     price_entry = models.PriceHistory(product_id=product.id, price=float(product_data["price"]))
     db.add(price_entry)
@@ -276,15 +336,12 @@ def refresh_product_price(product_id: int, db: Session = Depends(get_db)):
 
     try:
         current_price = float(price_entry.price)
-        alerts = (
-            db.query(models.Alert)
-            .filter(models.Alert.product_id == product.id)
-            .all()
-        )
-        for a in alerts:
-            _trigger_alert_if_needed(a, product, current_price, db)
+        alerts = db.query(models.Alert).filter(models.Alert.product_id == product.id).all()
+        for alert in alerts:
+            _trigger_alert_if_needed(alert, product, current_price, db)
     except Exception:
         db.rollback()
+
     return price_entry
 
 
@@ -294,13 +351,8 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    # Production-ish explicit deletes (works even if SQLite FK/cascade isn't enabled).
-    db.query(models.PriceHistory).filter(models.PriceHistory.product_id == product_id).delete(
-        synchronize_session=False
-    )
-    db.query(models.Alert).filter(models.Alert.product_id == product_id).delete(
-        synchronize_session=False
-    )
+    db.query(models.PriceHistory).filter(models.PriceHistory.product_id == product_id).delete(synchronize_session=False)
+    db.query(models.Alert).filter(models.Alert.product_id == product_id).delete(synchronize_session=False)
     db.delete(product)
     db.commit()
     return {"deleted": True, "product_id": product_id}
@@ -346,7 +398,6 @@ def list_alerts(
 
 
 def _record_prices_for_all_products():
-    """Background job: scrape & store a new price point for every product."""
     db = SessionLocal()
     try:
         products = db.query(models.Product).all()
@@ -358,33 +409,30 @@ def _record_prices_for_all_products():
 
                 if product_data.get("title"):
                     product.name = product_data["title"]
+                if product_data.get("image_url"):
+                    product.image_url = product_data["image_url"]
+                if product_data.get("source"):
+                    product.source = product_data["source"]
 
                 entry = models.PriceHistory(product_id=product.id, price=float(product_data["price"]))
                 db.add(entry)
                 product.last_updated = entry.timestamp
                 db.commit()
 
-                # Trigger alerts if threshold met.
                 try:
                     current_price = float(entry.price)
-                    alerts = (
-                        db.query(models.Alert)
-                        .filter(models.Alert.product_id == product.id)
-                        .all()
-                    )
-                    for a in alerts:
-                        _trigger_alert_if_needed(a, product, current_price, db)
+                    alerts = db.query(models.Alert).filter(models.Alert.product_id == product.id).all()
+                    for alert in alerts:
+                        _trigger_alert_if_needed(alert, product, current_price, db)
                 except Exception:
                     db.rollback()
             except Exception:
-                # Never let one product break the whole job.
                 db.rollback()
     finally:
         db.close()
 
 
 def _seed_default_products_if_empty():
-    """Seed a few demo products so first-time users see useful data immediately."""
     db = SessionLocal()
     try:
         existing_count = db.query(models.Product).count()
@@ -416,6 +464,7 @@ def _seed_default_products_if_empty():
             product = models.Product(
                 name=item["name"],
                 asin=item["asin"],
+                source="Amazon India",
                 target_price=item["target_price"],
                 last_updated=datetime.utcnow(),
             )
@@ -433,26 +482,16 @@ def _seed_default_products_if_empty():
 
 @app.on_event("startup")
 def _startup_scheduler():
-    """Optional scheduler to auto-track prices periodically.
-
-    Env vars:
-      - PRICEPULSE_ENABLE_SCHEDULER=1 (default: 1)
-      - PRICEPULSE_SCHEDULER_INTERVAL_MINUTES=60
-    """
     enable = os.getenv("PRICEPULSE_ENABLE_SCHEDULER", "1") == "1"
 
-    # Populate sample data on first run for better first-time UX.
     _seed_default_products_if_empty()
 
     if not enable:
         return
 
     try:
-        BackgroundScheduler = importlib.import_module(
-            "apscheduler.schedulers.background"
-        ).BackgroundScheduler
+        BackgroundScheduler = importlib.import_module("apscheduler.schedulers.background").BackgroundScheduler
     except Exception:
-        # APScheduler not installed; skip silently to avoid breaking the app.
         return
 
     interval_minutes = int(os.getenv("PRICEPULSE_SCHEDULER_INTERVAL_MINUTES", "30"))
@@ -465,8 +504,6 @@ def _startup_scheduler():
         replace_existing=True,
     )
     scheduler.start()
-
-    # Store on app state so it can be shut down cleanly.
     app.state.scheduler = scheduler
 
 

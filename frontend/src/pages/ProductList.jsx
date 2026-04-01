@@ -1,20 +1,8 @@
 import { useEffect, useMemo, useState } from "react"
+import { Link } from "react-router-dom"
 
+import ProductCard from "../components/ProductCard"
 import { apiJson, apiRequest } from "../lib/apiBaseUrl"
-
-function getRelativeTimeLabel(isoDate) {
-  const ms = Date.now() - new Date(isoDate).getTime()
-  const minutes = Math.floor(ms / 60000)
-
-  if (!Number.isFinite(minutes) || minutes < 1) return "just now"
-  if (minutes < 60) return `${minutes} min${minutes === 1 ? "" : "s"} ago`
-
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`
-
-  const days = Math.floor(hours / 24)
-  return `${days} day${days === 1 ? "" : "s"} ago`
-}
 
 function ProductList() {
   const [products, setProducts] = useState([])
@@ -42,21 +30,12 @@ function ProductList() {
 
       try {
         const params = new URLSearchParams()
-        if (searchTerm) {
-          params.set("q", searchTerm)
-        }
+        if (searchTerm) params.set("q", searchTerm)
 
         const path = params.toString() ? `/products?${params.toString()}` : "/products"
         const data = await apiJson(path)
         if (cancelled) return
-
-        if (!Array.isArray(data)) {
-          setProducts([])
-          setError("Unexpected API response format")
-          return
-        }
-
-        setProducts(data)
+        setProducts(Array.isArray(data) ? data : [])
       } catch (err) {
         if (cancelled) return
         setProducts([])
@@ -67,7 +46,6 @@ function ProductList() {
     }
 
     void loadProducts()
-
     return () => {
       cancelled = true
     }
@@ -101,15 +79,7 @@ function ProductList() {
 
     try {
       await apiRequest(`/products/${productId}`, { method: "DELETE" })
-
-      const params = new URLSearchParams()
-      if (searchTerm) {
-        params.set("q", searchTerm)
-      }
-
-      const path = params.toString() ? `/products?${params.toString()}` : "/products"
-      const data = await apiJson(path)
-      setProducts(Array.isArray(data) ? data : [])
+      setProducts((current) => current.filter((product) => Number(product.id) !== Number(productId)))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -121,8 +91,8 @@ function ProductList() {
     <section className="stack">
       <div className="section-head">
         <div>
-          <h2>Tracked Products</h2>
-          <p className="section-sub">All products monitored by PricePulse (prices update automatically on a schedule).</p>
+          <h2>Tracked products</h2>
+          <p className="section-sub">Search, compare recommendations, and jump straight into purchase or deeper inspection.</p>
         </div>
       </div>
 
@@ -142,7 +112,7 @@ function ProductList() {
         </select>
 
         {searchInput ? (
-          <button className="button" type="button" onClick={() => setSearchInput("")}>
+          <button className="button button-secondary" type="button" onClick={() => setSearchInput("")}>
             Clear
           </button>
         ) : null}
@@ -153,7 +123,7 @@ function ProductList() {
       {loading ? (
         <div className="row">
           <span className="spinner" aria-label="Loading" />
-          <span>{searchTerm ? "Searching products..." : "Loading products..."}</span>
+          <span>{searchTerm ? "Searching tracked products..." : "Loading products..."}</span>
         </div>
       ) : sortedProducts.length === 0 ? (
         <div className="notice">
@@ -163,30 +133,31 @@ function ProductList() {
         <div className="stack">
           <p className="section-sub">Showing {sortedProducts.length} result(s)</p>
           {sortedProducts.map((product) => (
-            <article className="card" key={product.id}>
-              <div className="row">
-                <h3>{product.name}</h3>
-                <span className="badge badge-warn">Target Rs. {product.target_price}</span>
-              </div>
-              <p className="section-sub">Added: {new Date(product.created_at).toLocaleDateString()}</p>
-              <p className="section-sub">Last updated: {product.last_updated ? getRelativeTimeLabel(product.last_updated) : "-"}</p>
-              <div className="row" style={{ marginTop: 10 }}>
-                <span className="section-sub">
-                  Latest: {Number.isFinite(Number(product.latest_price)) ? `Rs. ${Number(product.latest_price)}` : "N/A"}
-                </span>
-                <span className={product.recommendation === "BUY" ? "badge badge-good" : product.recommendation === "HOLD" ? "badge badge-danger" : "badge badge-warn"}>
-                  {product.recommendation || "-"}
-                </span>
-                <button
-                  className="button"
-                  type="button"
-                  disabled={deletingId === product.id}
-                  onClick={() => handleDelete(product.id)}
-                >
-                  {deletingId === product.id ? "Deleting..." : "Delete"}
-                </button>
-              </div>
-            </article>
+            <ProductCard
+              key={product.id}
+              product={product}
+              footer={<p className="section-sub">Added: {new Date(product.created_at).toLocaleString()}</p>}
+              actions={
+                <>
+                  <Link className="button button-secondary" to={`/detail?product=${product.id}`}>
+                    View Detail
+                  </Link>
+                  {product.purchase_url ? (
+                    <a className="button" href={product.purchase_url} target="_blank" rel="noreferrer">
+                      Buy Now
+                    </a>
+                  ) : null}
+                  <button
+                    className="button button-danger"
+                    type="button"
+                    disabled={deletingId === product.id}
+                    onClick={() => handleDelete(product.id)}
+                  >
+                    {deletingId === product.id ? "Deleting..." : "Delete"}
+                  </button>
+                </>
+              }
+            />
           ))}
         </div>
       )}

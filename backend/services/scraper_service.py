@@ -120,6 +120,24 @@ def _extract_mobile_card_image(card):
     return None
 
 
+def _extract_product_page_image(soup):
+    selectors = (
+        "#landingImage",
+        "#imgBlkFront",
+        "img[data-old-hires]",
+        "meta[property='og:image']",
+    )
+    for selector in selectors:
+        node = soup.select_one(selector)
+        if not node:
+            continue
+        for attr in ("data-old-hires", "src", "content"):
+            value = (node.get(attr) or "").strip()
+            if value:
+                return value
+    return None
+
+
 def _extract_mobile_card_price(card):
     selectors = (
         "span.a-price-whole",
@@ -167,6 +185,7 @@ def fetch_amazon_price_scraper(asin: str):
         if not title or title == "Amazon.in":
             return None
 
+        image_url = _extract_product_page_image(soup)
         price_value = _extract_price_value(price_node.get_text(" ", strip=True) if price_node else None)
 
         if price_value is None:
@@ -179,14 +198,18 @@ def fetch_amazon_price_scraper(asin: str):
                     return {
                         "title": first.get("title") or title,
                         "price": float(first["price"]),
-                        "source": "scraper_search_fallback",
+                        "source": "Amazon India",
+                        "image_url": first.get("image_url"),
+                        "purchase_url": first.get("product_url") or url,
                     }
             return None
 
         return {
             "title": title,
             "price": price_value,
-            "source": "scraper",
+            "source": "Amazon India",
+            "image_url": image_url,
+            "purchase_url": url,
         }
 
     except Exception as exc:
@@ -255,6 +278,8 @@ def search_amazon_products(search_term: str, limit: int = 6):
                     "image_url": _extract_mobile_card_image(card),
                     "price": _extract_mobile_card_price(card),
                     "seller": "Amazon Marketplace",
+                    "source": "Amazon India",
+                    "product_url": f"https://www.amazon.in/dp/{asin}",
                 }
             )
             seen_asin.add(asin)
