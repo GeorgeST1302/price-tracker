@@ -7,15 +7,15 @@ import ProductDetail from "./pages/ProductDetail"
 import History from "./pages/History"
 import Alerts from "./pages/Alerts"
 import "./App.css"
-
 function App() {
   return (
     <HashRouter>
       <div className="app-shell">
         <header className="topbar">
-          <div>
-            <p className="eyebrow">AI Pricing Optimization</p>
+          <div className="brand">
+            <p className="eyebrow">Price monitoring & alerting</p>
             <h1>PricePulse</h1>
+            <p className="tagline">Track the products you care about and get notified the moment the price drops below your target.</p>
           </div>
 
           <nav className="tabs" aria-label="Main navigation">
