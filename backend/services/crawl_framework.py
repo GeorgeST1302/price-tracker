@@ -182,6 +182,13 @@ class ScraplingSession(BaseSession):
         started = time.perf_counter()
         try:
             import scrapling
+            from scrapling.core.utils import set_logger
+
+            silent_logger = logging.getLogger("pricepulse.scrapling")
+            silent_logger.setLevel(logging.ERROR)
+            if not silent_logger.handlers:
+                silent_logger.addHandler(logging.StreamHandler())
+            set_logger(silent_logger)
         except Exception as exc:
             elapsed = round((time.perf_counter() - started) * 1000, 2)
             return CrawlResponse(
@@ -195,7 +202,11 @@ class ScraplingSession(BaseSession):
             )
 
         def _do_get():
-            fetcher = scrapling.Fetcher(auto_match=False)
+            fetcher = scrapling.Fetcher()
+            try:
+                fetcher.configure(auto_match=False)
+            except Exception:
+                pass
             kwargs = {"timeout": self.timeout_seconds, "verify": self.verify_ssl}
             if proxy:
                 kwargs["proxy"] = proxy
@@ -462,4 +473,3 @@ class SpiderRunner:
                 break
             yield item
         await runner_task
-

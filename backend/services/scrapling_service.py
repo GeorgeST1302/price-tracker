@@ -63,6 +63,13 @@ def fetch_amazon_price_with_scrapling(asin: str):
 
     try:
         import scrapling  # lazy import so app still starts if dependency is absent
+        from scrapling.core.utils import set_logger
+
+        silent_logger = logging.getLogger("pricepulse.scrapling")
+        silent_logger.setLevel(logging.ERROR)
+        if not silent_logger.handlers:
+            silent_logger.addHandler(logging.StreamHandler())
+        set_logger(silent_logger)
     except Exception as exc:
         logger.info("Scrapling not available: %s", exc)
         return None
@@ -72,7 +79,11 @@ def fetch_amazon_price_with_scrapling(asin: str):
     url = f"https://www.amazon.in/dp/{asin}"
 
     try:
-        fetcher = scrapling.Fetcher(auto_match=False)
+        fetcher = scrapling.Fetcher()
+        try:
+            fetcher.configure(auto_match=False)
+        except Exception:
+            pass
         response = fetcher.get(
             url,
             timeout=timeout_seconds,
