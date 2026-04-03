@@ -3,6 +3,11 @@ import { Link } from "react-router-dom"
 
 import ProductCard from "../components/ProductCard"
 import { apiJson, apiRequest } from "../lib/apiBaseUrl"
+import { formatPercent } from "../lib/formatters"
+
+function getPurchaseButtonLabel(recommendation) {
+  return String(recommendation || "").toUpperCase() === "BUY NOW" ? "Buy Now" : "Open Listing"
+}
 
 function Dashboard() {
   const [loading, setLoading] = useState(true)
@@ -44,7 +49,7 @@ function Dashboard() {
   }
 
   const trackedCount = products.length
-  const buyNowCount = products.filter((product) => String(product.recommendation).toUpperCase().includes("BUY")).length
+  const buyNowCount = products.filter((product) => String(product.recommendation).toUpperCase() === "BUY NOW").length
   const avgDelta = (() => {
     const deltas = products.map((product) => Number(product.delta_from_avg_pct)).filter((value) => Number.isFinite(value))
     if (!deltas.length) return 0
@@ -56,7 +61,7 @@ function Dashboard() {
       <div className="section-head">
         <div>
           <h2>Smart purchase dashboard</h2>
-          <p className="section-sub">Track price context, spot bargains, and decide whether to buy now or wait a little longer.</p>
+          <p className="section-sub">Track live price movement, forecast likely drops from history, and choose the right time to buy.</p>
         </div>
         <span className="kbd">Live from your backend API</span>
       </div>
@@ -74,7 +79,7 @@ function Dashboard() {
         </article>
         <article className="card">
           <p className="section-sub">Average move vs 30D average</p>
-          <p className="metric" style={{ fontSize: "1.2rem" }}>{Number.isFinite(avgDelta) ? `${avgDelta.toFixed(1)}%` : "N/A"}</p>
+          <p className="metric" style={{ fontSize: "1.2rem" }}>{Number.isFinite(avgDelta) ? formatPercent(avgDelta) : "N/A"}</p>
         </article>
       </div>
 
@@ -103,7 +108,7 @@ function Dashboard() {
                   </Link>
                   {product.purchase_url ? (
                     <a className="button" href={product.purchase_url} target="_blank" rel="noreferrer">
-                      Buy Now
+                      {getPurchaseButtonLabel(product.recommendation)}
                     </a>
                   ) : null}
                   <button

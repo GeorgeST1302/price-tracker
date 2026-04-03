@@ -4,6 +4,10 @@ import { Link } from "react-router-dom"
 import ProductCard from "../components/ProductCard"
 import { apiJson, apiRequest } from "../lib/apiBaseUrl"
 
+function getPurchaseButtonLabel(recommendation) {
+  return String(recommendation || "").toUpperCase() === "BUY NOW" ? "Buy Now" : "Open Listing"
+}
+
 function ProductList() {
   const [products, setProducts] = useState([])
   const [searchInput, setSearchInput] = useState("")
@@ -12,6 +16,10 @@ function ProductList() {
   const [loading, setLoading] = useState(true)
   const [deletingId, setDeletingId] = useState(null)
   const [error, setError] = useState(null)
+  const [editingId, setEditingId] = useState(null)
+  const [editMin, setEditMin] = useState("")
+  const [editMax, setEditMax] = useState("")
+  const [savingId, setSavingId] = useState(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -54,18 +62,25 @@ function ProductList() {
   const sortedProducts = useMemo(() => {
     const cloned = [...products]
 
+    function targetCeiling(product) {
+      if (product?.target_price_max != null) return Number(product.target_price_max)
+      if (product?.target_price != null) return Number(product.target_price)
+      if (product?.target_price_min != null) return Number(product.target_price_min)
+      return Number.POSITIVE_INFINITY
+    }
+
     if (sortBy === "name_asc") {
       cloned.sort((a, b) => String(a.name).localeCompare(String(b.name)))
       return cloned
     }
 
     if (sortBy === "target_asc") {
-      cloned.sort((a, b) => Number(a.target_price) - Number(b.target_price))
+      cloned.sort((a, b) => targetCeiling(a) - targetCeiling(b))
       return cloned
     }
 
     if (sortBy === "target_desc") {
-      cloned.sort((a, b) => Number(b.target_price) - Number(a.target_price))
+      cloned.sort((a, b) => targetCeiling(b) - targetCeiling(a))
       return cloned
     }
 
@@ -84,6 +99,47 @@ function ProductList() {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  function beginEdit(product) {
+    setEditingId(product.id)
+    setEditMin(String(product.target_price_min ?? product.target_price ?? ""))
+    setEditMax(String(product.target_price_max ?? product.target_price ?? ""))
+  }
+
+  async function saveTargetRange(productId) {
+    const parsedMin = Number(editMin)
+    const parsedMax = Number(editMax)
+
+    if (!Number.isFinite(parsedMin) || !Number.isFinite(parsedMax) || parsedMin <= 0 || parsedMax <= 0) {
+      setError("Target range must contain positive numbers.")
+      return
+    }
+    if (parsedMin > parsedMax) {
+      setError("Target min must be less than or equal to target max.")
+      return
+    }
+
+    setError(null)
+    setSavingId(productId)
+    try {
+      const updated = await apiJson(`/products/${productId}/target`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target_price_min: parsedMin,
+          target_price_max: parsedMax,
+        }),
+      })
+      setProducts((current) => current.map((item) => (Number(item.id) === Number(productId) ? updated : item)))
+      setEditingId(null)
+      setEditMin("")
+      setEditMax("")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSavingId(null)
     }
   }
 
@@ -144,7 +200,7 @@ function ProductList() {
                   </Link>
                   {product.purchase_url ? (
                     <a className="button" href={product.purchase_url} target="_blank" rel="noreferrer">
-                      Buy Now
+                      {getPurchaseButtonLabel(product.recommendation)}
                     </a>
                   ) : null}
                   <button
@@ -155,6 +211,47 @@ function ProductList() {
                   >
                     {deletingId === product.id ? "Deleting..." : "Delete"}
                   </button>
+                  {editingId === product.id ? (
+                    <>
+                      <input
+                        className="input"
+                        style={{ minWidth: 140 }}
+                        value={editMin}
+                        onChange={(event) => setEditMin(event.target.value)}
+                        placeholder="Target min"
+                      />
+                      <input
+                        className="input"
+                        style={{ minWidth: 140 }}
+                        value={editMax}
+                        onChange={(event) => setEditMax(event.target.value)}
+                        placeholder="Target max"
+                      />
+                      <button
+                        className="button button-small"
+                        type="button"
+                        disabled={savingId === product.id}
+                        onClick={() => saveTargetRange(product.id)}
+                      >
+                        {savingId === product.id ? "Saving..." : "Save range"}
+                      </button>
+                      <button
+                        className="button button-secondary button-small"
+                        type="button"
+                        onClick={() => {
+                          setEditingId(null)
+                          setEditMin("")
+                          setEditMax("")
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button className="button button-secondary button-small" type="button" onClick={() => beginEdit(product)}>
+                      Edit range
+                    </button>
+                  )}
                 </>
               }
             />

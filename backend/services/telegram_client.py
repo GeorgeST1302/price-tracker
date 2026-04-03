@@ -5,6 +5,17 @@ import time
 import requests
 from requests import exceptions as requests_exceptions
 
+try:
+    from ..config import load_backend_env
+except ImportError:
+    try:
+        from config import load_backend_env
+    except ImportError:
+        load_backend_env = None
+
+if load_backend_env is not None:
+    load_backend_env()
+
 
 logger = logging.getLogger(__name__)
 
@@ -20,15 +31,52 @@ def is_telegram_configured() -> bool:
     return bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
 
 
-def _build_message(product_name: str, current_price: float, target_price: float, product_id: int) -> str:
-    return (
-        "PricePulse alert\n\n"
-        f"Product: {product_name}\n"
-        f"Current price: Rs. {current_price:.2f}\n"
-        f"Your target: Rs. {target_price:.2f}\n"
-        f"Product ID: {product_id}\n\n"
-        "A tracked product has reached your target price."
-    )
+def _format_target_range(target_price_min: float | None, target_price_max: float | None) -> str:
+    low = float(target_price_min) if target_price_min is not None else None
+    high = float(target_price_max) if target_price_max is not None else None
+
+    if low is not None and high is not None:
+        if abs(low - high) < 0.01:
+            return f"Rs. {high:.2f}"
+        return f"Rs. {low:.2f} - Rs. {high:.2f}"
+    if high is not None:
+        return f"Up to Rs. {high:.2f}"
+    if low is not None:
+        return f"From Rs. {low:.2f}"
+    return "Custom target range"
+
+
+def _build_message(
+    *,
+    product_name: str,
+    current_price: float,
+    target_price_min: float | None,
+    target_price_max: float | None,
+    product_id: int,
+    deal_status: str | None = None,
+    deal_reason: str | None = None,
+    purchase_url: str | None = None,
+    historical_low: float | None = None,
+) -> str:
+    lines = [
+        "PricePulse alert",
+        "",
+        f"Product: {product_name}",
+        f"Current price: Rs. {current_price:.2f}",
+        f"Your target range: {_format_target_range(target_price_min, target_price_max)}",
+        f"Product ID: {product_id}",
+    ]
+
+    if deal_status:
+        lines.insert(3, f"Action: {deal_status}")
+    if historical_low is not None:
+        lines.append(f"Historical low: Rs. {float(historical_low):.2f}")
+    if purchase_url:
+        lines.append(f"Link: {purchase_url}")
+
+    lines.append("")
+    lines.append(deal_reason or "A tracked product has reached an alert condition.")
+    return "\n".join(lines)
 
 
 def _safe_error_from_response(response: requests.Response) -> str:
@@ -52,15 +100,35 @@ def _safe_error_from_response(response: requests.Response) -> str:
     return f"Telegram request failed with status {status_code}."
 
 
-def send_triggered_alert(*, product_name: str, current_price: float, target_price: float, product_id: int) -> tuple[bool, str | None]:
+def send_triggered_alert(
+    *,
+    product_name: str,
+    current_price: float,
+    target_price_min: float | None = None,
+    target_price_max: float | None = None,
+    target_price: float | None = None,
+    product_id: int,
+    deal_status: str | None = None,
+    deal_reason: str | None = None,
+    purchase_url: str | None = None,
+    historical_low: float | None = None,
+) -> tuple[bool, str | None]:
     if not is_telegram_configured():
         return False, "Telegram is not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID."
+
+    normalized_max = float(target_price_max if target_price_max is not None else target_price if target_price is not None else current_price)
+    normalized_min = float(target_price_min) if target_price_min is not None else normalized_max
 
     message = _build_message(
         product_name=product_name,
         current_price=float(current_price),
-        target_price=float(target_price),
+        target_price_min=normalized_min,
+        target_price_max=normalized_max,
         product_id=int(product_id),
+        deal_status=deal_status,
+        deal_reason=deal_reason,
+        purchase_url=purchase_url,
+        historical_low=historical_low,
     )
 
     last_error = None

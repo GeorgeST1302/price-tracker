@@ -1,4 +1,6 @@
 {
     "python.defaultInterpreterPath": "C:\\Users\\Georg\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
-    "python-envs.defaultEnvManager": "ms-python.python:system"
+    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "python.terminal.useEnvFile": true,
+    "python.envFile": "${workspaceFolder}/backend/.env"
 }

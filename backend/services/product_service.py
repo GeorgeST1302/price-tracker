@@ -2,10 +2,16 @@ import logging
 
 try:
     from .api_fallback import fetch_amazon_price_api
+    from .marketplace_service import fetch_marketplace_product, normalize_source_key
+    from .generic_scraper_service import fetch_generic_product
+    from .scrapy_runner import fetch_price_with_local_scrapy
     from .scraper_service import fetch_amazon_price_scraper, resolve_asin_from_search_term, search_amazon_products
     from .zyte_client import fetch_price_from_zyte
 except ImportError:
     from services.api_fallback import fetch_amazon_price_api
+    from services.marketplace_service import fetch_marketplace_product, normalize_source_key
+    from services.generic_scraper_service import fetch_generic_product
+    from services.scrapy_runner import fetch_price_with_local_scrapy
     from services.scraper_service import fetch_amazon_price_scraper, resolve_asin_from_search_term, search_amazon_products
     from services.zyte_client import fetch_price_from_zyte
 
@@ -91,6 +97,8 @@ def _count_streak(prices: list[float], direction: str) -> int:
 def compute_recommendation_details(
     prices: list[float],
     average_reference: float | None = None,
+    target_price_min: float | None = None,
+    target_price_max: float | None = None,
     target_price: float | None = None,
 ) -> dict:
     cleaned = _clean_prices(prices)
@@ -114,9 +122,24 @@ def compute_recommendation_details(
     falling_streak = _count_streak(cleaned, "down")
     rising_streak = _count_streak(cleaned, "up")
     enough_history = len(cleaned) >= 3
-    target_value = float(target_price) if target_price is not None else None
+    target_min_value = float(target_price_min) if target_price_min is not None else None
+    target_max_value = float(target_price_max) if target_price_max is not None else None
+    target_fallback = float(target_price) if target_price is not None else None
+    if target_min_value is None and target_max_value is None and target_fallback is not None:
+        target_min_value = target_fallback
+        target_max_value = target_fallback
+    elif target_min_value is None and target_max_value is not None:
+        target_min_value = target_max_value
+    elif target_max_value is None and target_min_value is not None:
+        target_max_value = target_min_value
+    target_value = target_max_value
     target_gap = (latest - target_value) if target_value is not None else None
     at_or_below_target = target_gap is not None and target_gap <= epsilon
+    inside_target_band = (
+        target_min_value is not None
+        and target_max_value is not None
+        and (target_min_value - epsilon) <= latest <= (target_max_value + epsilon)
+    )
     near_recent_low = latest <= (min_recent + epsilon)
     avg_description = _describe_vs_average(delta_from_avg_pct)
 
@@ -125,7 +148,11 @@ def compute_recommendation_details(
 
     if at_or_below_target:
         recommendation = "BUY NOW"
-        if near_recent_low:
+        if target_min_value is not None and latest < (target_min_value - epsilon):
+            reason = "Current price is even better than the lower end of your target range."
+        elif inside_target_band and near_recent_low:
+            reason = "Current price is inside your target range and near the lowest level you have tracked."
+        elif near_recent_low:
             reason = f"Current price has reached your target and is near the lowest level you have tracked."
         elif delta_from_avg_pct is not None:
             reason = f"Current price has reached your target and is {avg_description}."
@@ -133,7 +160,7 @@ def compute_recommendation_details(
             reason = "Current price has reached your target, so this is a valid buy window."
     elif not enough_history:
         if target_gap is not None and target_gap > 0:
-            reason = f"We need a little more history first. Right now the price is {_format_rupees(target_gap)} above your target."
+            reason = f"We need a little more history first. Right now the price is {_format_rupees(target_gap)} above your target ceiling."
         else:
             reason = "We need a little more history before recommending a confident buy decision."
     elif target_gap is not None and target_gap > 0 and trend == "DECREASING":
@@ -192,9 +219,17 @@ def compute_recommendation_details(
 def compute_recommendation(
     prices: list[float],
     average_reference: float | None = None,
+    target_price_min: float | None = None,
+    target_price_max: float | None = None,
     target_price: float | None = None,
 ) -> str | None:
-    return compute_recommendation_details(prices, average_reference, target_price).get("recommendation")
+    return compute_recommendation_details(
+        prices,
+        average_reference,
+        target_price_min,
+        target_price_max,
+        target_price,
+    ).get("recommendation")
 
 
 def _enrich_product_data(asin: str, data: dict | None) -> dict | None:
@@ -203,11 +238,12 @@ def _enrich_product_data(asin: str, data: dict | None) -> dict | None:
 
     enriched = dict(data)
     enriched["asin"] = enriched.get("asin") or asin
+    enriched["source_key"] = normalize_source_key(enriched.get("source_key"))
     enriched["source"] = enriched.get("source") or "Amazon India"
     enriched["purchase_url"] = enriched.get("purchase_url") or f"https://www.amazon.in/dp/{asin}"
     enriched["fetch_method"] = enriched.get("fetch_method") or "unknown"
 
-    if not enriched.get("image_url") or not enriched.get("title"):
+    if enriched.get("source_key") == "amazon" and (not enriched.get("image_url") or not enriched.get("title")):
         try:
             fallback_results = search_amazon_products(asin, limit=1)
         except Exception:
@@ -223,20 +259,77 @@ def _enrich_product_data(asin: str, data: dict | None) -> dict | None:
     return enriched
 
 
-def get_product_data(asin: str):
+def _normalize_fetch_mode(fetch_mode: str | None) -> str:
+    normalized = str(fetch_mode or "").strip().lower()
+    if normalized == "zyte-only":
+        return "zyte-only"
+    return "auto"
+
+
+def _get_amazon_product_data(asin: str, fetch_mode: str | None = None):
+    mode = _normalize_fetch_mode(fetch_mode)
+
+    if mode == "zyte-only":
+        logger.info("Zyte-only mode enabled for ASIN=%s", asin)
+        data = fetch_price_from_zyte(asin)
+        if data and isinstance(data, dict):
+            return _enrich_product_data(asin, data)
+
+        logger.warning("Zyte-only mode failed for ASIN=%s", asin)
+        return None
+
     data = fetch_amazon_price_scraper(asin)
 
     if data:
         logger.info("Scraper success for ASIN=%s", asin)
         return _enrich_product_data(asin, data)
 
-    logger.info("Direct scraper failed for ASIN=%s, trying Zyte", asin)
+    logger.info("Direct scraper failed for ASIN=%s, trying local Scrapy", asin)
+    data = fetch_price_with_local_scrapy(asin)
+    if data and isinstance(data, dict):
+        logger.info("Local Scrapy success for ASIN=%s", asin)
+        return _enrich_product_data(asin, data)
+
+    logger.info("Local Scrapy failed for ASIN=%s, trying Zyte", asin)
     data = fetch_price_from_zyte(asin)
     if data and isinstance(data, dict):
         return _enrich_product_data(asin, data)
 
     logger.warning("Scraper failed for ASIN=%s, using fallback", asin)
     return _enrich_product_data(asin, fetch_amazon_price_api(asin))
+
+
+def get_product_data(
+    asin: str | None = None,
+    *,
+    fetch_mode: str | None = None,
+    source_key: str | None = None,
+    product_url: str | None = None,
+    external_id: str | None = None,
+):
+    normalized_source = normalize_source_key(source_key)
+
+    if normalized_source == "generic":
+        if not product_url:
+            return None
+        data = fetch_generic_product(product_url)
+        identifier = external_id or asin or ""
+        return _enrich_product_data(identifier, data)
+
+    if normalized_source != "amazon":
+        data = fetch_marketplace_product(
+            normalized_source,
+            asin=asin,
+            external_id=external_id,
+            product_url=product_url,
+        )
+        identifier = asin or external_id or ""
+        return _enrich_product_data(identifier, data)
+
+    amazon_asin = str(asin or external_id or "").strip().upper()
+    if not amazon_asin:
+        return None
+    return _get_amazon_product_data(amazon_asin, fetch_mode=fetch_mode)
 
 
 def resolve_asin(product_name: str | None = None):

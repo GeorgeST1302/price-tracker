@@ -1,4 +1,5 @@
 import logging
+import json
 import random
 import re
 import time
@@ -54,6 +55,92 @@ def _extract_price_value(text: str | None):
         return float(cleaned) if cleaned else None
     except Exception:
         return None
+
+
+def _clean_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = re.sub(r"\s+", " ", str(value)).strip()
+    return cleaned or None
+
+
+def _extract_brand_from_jsonld_payload(payload) -> str | None:
+    def _flatten(obj):
+        if obj is None:
+            return []
+        if isinstance(obj, list):
+            nodes = []
+            for entry in obj:
+                nodes.extend(_flatten(entry))
+            return nodes
+        if isinstance(obj, dict) and "@graph" in obj:
+            return _flatten(obj.get("@graph"))
+        return [obj]
+
+    for node in _flatten(payload):
+        if not isinstance(node, dict):
+            continue
+
+        node_type = node.get("@type")
+        types: list[str] = []
+        if isinstance(node_type, str):
+            types = [node_type]
+        elif isinstance(node_type, list):
+            types = [item for item in node_type if isinstance(item, str)]
+
+        if not any(t.lower() == "product" for t in types):
+            continue
+
+        brand = node.get("brand")
+        if isinstance(brand, str):
+            return _clean_text(brand)
+        if isinstance(brand, dict):
+            return _clean_text(brand.get("name"))
+        if isinstance(brand, list):
+            for item in brand:
+                if isinstance(item, str) and _clean_text(item):
+                    return _clean_text(item)
+                if isinstance(item, dict) and _clean_text(item.get("name")):
+                    return _clean_text(item.get("name"))
+
+    return None
+
+
+def _extract_amazon_brand(soup) -> str | None:
+    # 1) JSON-LD (most reliable)
+    try:
+        for script in soup.select("script[type='application/ld+json']"):
+            raw = script.get_text("\n", strip=True)
+            if not raw:
+                continue
+            try:
+                payload = json.loads(raw)
+            except Exception:
+                continue
+            brand = _extract_brand_from_jsonld_payload(payload)
+            if brand:
+                return brand
+    except Exception:
+        pass
+
+    # 2) Byline text (common on Amazon)
+    try:
+        byline = soup.select_one("#bylineInfo")
+        text = _clean_text(byline.get_text(" ", strip=True) if byline else None)
+        if text:
+            match = re.search(r"visit the\s+(.+?)\s+store", text, flags=re.IGNORECASE)
+            if match:
+                return _clean_text(match.group(1))
+            match = re.search(r"brand\s*[:\-]\s*(.+)", text, flags=re.IGNORECASE)
+            if match:
+                return _clean_text(match.group(1))
+            match = re.search(r"^by\s+(.+)$", text, flags=re.IGNORECASE)
+            if match:
+                return _clean_text(match.group(1))
+    except Exception:
+        pass
+
+    return None
 
 
 def _extract_asin_from_href(href: str | None):
@@ -186,6 +273,7 @@ def fetch_amazon_price_scraper(asin: str):
             return None
 
         image_url = _extract_product_page_image(soup)
+        brand = _extract_amazon_brand(soup)
         price_value = _extract_price_value(price_node.get_text(" ", strip=True) if price_node else None)
 
         if price_value is None:
@@ -200,6 +288,7 @@ def fetch_amazon_price_scraper(asin: str):
                         "price": float(first["price"]),
                         "source": "Amazon India",
                         "image_url": first.get("image_url"),
+                        "brand": brand,
                         "purchase_url": first.get("product_url") or url,
                         "fetch_method": "scraper_search_fallback",
                     }
@@ -210,6 +299,7 @@ def fetch_amazon_price_scraper(asin: str):
             "price": price_value,
             "source": "Amazon India",
             "image_url": image_url,
+            "brand": brand,
             "purchase_url": url,
             "fetch_method": "scraper",
         }

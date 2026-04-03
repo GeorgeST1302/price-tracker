@@ -4,7 +4,7 @@ function SearchHistory({ items, onSelect, onClear }) {
   return (
     <div className="stack">
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <p className="section-sub">Recent searches</p>
+        <p className="section-sub">Recent</p>
         <button className="button button-secondary button-small" type="button" onClick={onClear}>
           Clear
         </button>

@@ -6,7 +6,7 @@ import ProductList from "./pages/ProductList"
 import ProductDetail from "./pages/ProductDetail"
 import History from "./pages/History"
 import Alerts from "./pages/Alerts"
-import AlertWatcher from "./components/AlertWatcher"
+import SecretFetchModeToggle from "./components/SecretFetchModeToggle"
 import "./App.css"
 
 function App() {
@@ -15,9 +15,9 @@ function App() {
       <div className="app-shell">
         <header className="topbar">
           <div className="brand">
-            <p className="eyebrow">Price monitoring & alerting</p>
+            <SecretFetchModeToggle />
             <h1>PricePulse</h1>
-            <p className="tagline">Track the products you care about and get notified the moment the price drops below your target.</p>
+            <p className="tagline">Analyze historical trends, forecast likely drops, and get real-time alerts to decide whether to buy now or wait.</p>
           </div>
 
           <nav className="tabs" aria-label="Main navigation">
@@ -41,8 +41,6 @@ function App() {
             </NavLink>
           </nav>
         </header>
-
-        <AlertWatcher />
 
         <main className="page">
           <Routes>

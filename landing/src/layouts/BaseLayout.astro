@@ -1,0 +1,57 @@
+---
+const {
+  title = "PricePulse - Smart Purchase Decision Assistant",
+  description = "Compare prices, track target ranges, and get Telegram alerts when products hit your buy window.",
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta name="theme-color" content="#0b4f79" />
+    <link rel="icon" href="/favicon.svg" />
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>
+
+<style is:global>
+  :root {
+    --ink: #0f172a;
+    --ink-soft: #3d5565;
+    --brand: #0f8ecf;
+    --brand-deep: #0b4f79;
+    --surface: #ffffff;
+    --surface-soft: #f3f7fa;
+    --line: #d7e5ef;
+    --ok: #137b3d;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    margin: 0;
+    font-family: "Segoe UI", "Inter", system-ui, -apple-system, sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(1000px 500px at 90% -10%, #dceffc 0%, transparent 65%),
+      radial-gradient(900px 400px at -10% 110%, #eaf5ff 0%, transparent 70%),
+      linear-gradient(180deg, #f9fcff 0%, #eef4f8 100%);
+    min-height: 100vh;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+</style>

@@ -1,6 +1,12 @@
+import { getFetchMode } from "./fetchMode"
+
 export function getApiBaseUrl() {
   const fromEnv = import.meta.env.VITE_API_BASE_URL
-  if (fromEnv) return String(fromEnv).replace(/\/$/, "")
+  const normalizedFromEnv = String(fromEnv || "").trim().replace(/\/$/, "")
+  const isPlaceholder =
+    !normalizedFromEnv || normalizedFromEnv.includes("your-backend-service.onrender.com")
+
+  if (!isPlaceholder) return normalizedFromEnv
 
   const host = window.location.hostname
   if (host === "localhost") return "http://localhost:8000"
@@ -101,11 +107,17 @@ export async function apiRequest(path, options = {}) {
   const { timeoutMs = DEFAULT_TIMEOUT_MS, signal, headers, ...rest } = options
   const requestUrl = buildApiUrl(path)
   const timeout = withTimeout(signal, timeoutMs)
+  const requestHeaders = new Headers(headers || {})
+  const fetchMode = getFetchMode()
+
+  if (fetchMode === "zyte-only") {
+    requestHeaders.set("X-PricePulse-Fetch-Mode", "zyte-only")
+  }
 
   try {
     const response = await fetch(requestUrl, {
       ...rest,
-      headers,
+      headers: requestHeaders,
       cache: "no-store",
       signal: timeout.signal,
     })

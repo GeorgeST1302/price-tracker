@@ -1,0 +1,186 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+const appUrl = import.meta.env.PUBLIC_APP_URL || "http://localhost:5173/#/";
+---
+
+<BaseLayout>
+  <main class="page">
+    <header class="top">
+      <p class="eyebrow">Price Monitoring & Alerting</p>
+      <h1>PricePulse</h1>
+      <p class="sub">
+        A smarter buy-or-wait assistant for real shoppers. Compare listings, track your target range, and get Telegram alerts when prices hit your window.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href={appUrl}>Open App</a>
+        <a class="btn btn-ghost" href="#how">How It Works</a>
+      </div>
+    </header>
+
+    <section id="how" class="panel">
+      <h2>How It Works</h2>
+      <div class="grid">
+        <article>
+          <h3>1. Compare Live Listings</h3>
+          <p>Search once and review structured results from supported marketplaces in one place.</p>
+        </article>
+        <article>
+          <h3>2. Set Your Buy Range</h3>
+          <p>Track min-max target values like <strong>Rs. 2000 - Rs. 3000</strong> and update anytime.</p>
+        </article>
+        <article>
+          <h3>3. Keep Monitoring</h3>
+          <p>Background checks run on interval, append price history, and evaluate trigger conditions.</p>
+        </article>
+        <article>
+          <h3>4. Get Telegram Alerts</h3>
+          <p>When a tracked product reaches your configured range, you get notified on phone.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Built For Fast Decisions</h2>
+      <ul class="bullets">
+        <li>Clear recommendation states for buy, hold, or watch.</li>
+        <li>Inline target range editing and quick product inspection.</li>
+        <li>History-backed context instead of guesswork.</li>
+      </ul>
+      <a class="btn btn-primary" href={appUrl}>Launch Dashboard</a>
+    </section>
+  </main>
+</BaseLayout>
+
+<style>
+  .page {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 2rem 1rem 3rem;
+    display: grid;
+    gap: 1rem;
+  }
+
+  .top {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 20px;
+    padding: 2rem;
+    box-shadow: 0 14px 28px rgba(11, 79, 121, 0.09);
+  }
+
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--brand-deep);
+    font-size: 0.72rem;
+    margin: 0;
+  }
+
+  h1 {
+    margin: 0.35rem 0 0;
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    line-height: 1;
+  }
+
+  .sub {
+    margin-top: 0.85rem;
+    max-width: 70ch;
+    color: var(--ink-soft);
+    line-height: 1.55;
+  }
+
+  .cta-row {
+    margin-top: 1.2rem;
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    padding: 0.68rem 1rem;
+    font-weight: 700;
+    font-size: 0.95rem;
+    transition: transform 120ms ease, box-shadow 120ms ease;
+  }
+
+  .btn:hover {
+    transform: translateY(-1px);
+  }
+
+  .btn-primary {
+    color: #fff;
+    background: linear-gradient(135deg, var(--brand), var(--brand-deep));
+    box-shadow: 0 10px 18px rgba(15, 142, 207, 0.35);
+  }
+
+  .btn-ghost {
+    border-color: var(--line);
+    background: var(--surface-soft);
+    color: var(--ink);
+  }
+
+  .panel {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 20px;
+    padding: 1.25rem;
+  }
+
+  .panel h2 {
+    margin: 0;
+    font-size: 1.25rem;
+  }
+
+  .grid {
+    margin-top: 0.8rem;
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .grid article {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 0.9rem;
+    background: var(--surface-soft);
+  }
+
+  .grid h3 {
+    margin: 0;
+    font-size: 1rem;
+  }
+
+  .grid p {
+    margin: 0.45rem 0 0;
+    color: var(--ink-soft);
+    line-height: 1.4;
+  }
+
+  .bullets {
+    margin: 0.8rem 0 0.9rem;
+    padding-left: 1.1rem;
+    color: var(--ink-soft);
+  }
+
+  .bullets li {
+    margin: 0.35rem 0;
+  }
+
+  @media (max-width: 760px) {
+    .top,
+    .panel {
+      border-radius: 16px;
+      padding: 1rem;
+    }
+
+    .grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

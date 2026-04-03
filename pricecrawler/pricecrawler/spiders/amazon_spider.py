@@ -1,3 +1,4 @@
+import json
 import re
 
 import scrapy
@@ -5,6 +6,90 @@ import scrapy
 
 class AmazonSpider(scrapy.Spider):
     name = "amazon_price"
+
+    def _clean_text(self, value):
+        if value is None:
+            return None
+        cleaned = re.sub(r"\s+", " ", str(value)).strip()
+        return cleaned or None
+
+    def _parse_price(self, value):
+        if value is None:
+            return None
+        text = str(value)
+        text = text.replace(",", "")
+        match = re.search(r"([0-9]+(?:\.[0-9]{1,2})?)", text)
+        if not match:
+            return None
+        try:
+            return float(match.group(1))
+        except Exception:
+            return None
+
+    def _extract_brand_from_jsonld(self, response):
+        scripts = response.css("script[type='application/ld+json']::text").getall() or []
+
+        def _flatten(obj):
+            if obj is None:
+                return []
+            if isinstance(obj, list):
+                nodes = []
+                for entry in obj:
+                    nodes.extend(_flatten(entry))
+                return nodes
+            if isinstance(obj, dict) and "@graph" in obj:
+                return _flatten(obj.get("@graph"))
+            return [obj]
+
+        for raw in scripts:
+            raw = (raw or "").strip()
+            if not raw:
+                continue
+            try:
+                payload = json.loads(raw)
+            except Exception:
+                continue
+            for node in _flatten(payload):
+                if not isinstance(node, dict):
+                    continue
+                node_type = node.get("@type")
+                types = [node_type] if isinstance(node_type, str) else ([t for t in node_type if isinstance(t, str)] if isinstance(node_type, list) else [])
+                if not any(t.lower() == "product" for t in types):
+                    continue
+                brand_obj = node.get("brand")
+                if isinstance(brand_obj, str) and self._clean_text(brand_obj):
+                    return self._clean_text(brand_obj)
+                if isinstance(brand_obj, dict) and self._clean_text(brand_obj.get("name")):
+                    return self._clean_text(brand_obj.get("name"))
+        return None
+
+    def _extract_brand_from_byline(self, response):
+        text = self._clean_text(response.css("#bylineInfo::text").get())
+        if not text:
+            text = self._clean_text(response.css("#bylineInfo").xpath("string(.)").get())
+        if not text:
+            return None
+        match = re.search(r"visit the\s+(.+?)\s+store", text, flags=re.IGNORECASE)
+        if match:
+            return self._clean_text(match.group(1))
+        match = re.search(r"brand\s*[:\-]\s*(.+)", text, flags=re.IGNORECASE)
+        if match:
+            return self._clean_text(match.group(1))
+        return None
+
+    def _extract_image_url(self, response):
+        selectors = [
+            "#landingImage::attr(data-old-hires)",
+            "#landingImage::attr(src)",
+            "#imgBlkFront::attr(src)",
+            "img[data-old-hires]::attr(data-old-hires)",
+            "meta[property='og:image']::attr(content)",
+        ]
+        for sel in selectors:
+            value = self._clean_text(response.css(sel).get())
+            if value:
+                return value
+        return None
 
     def __init__(self, asin=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -54,18 +139,30 @@ class AmazonSpider(scrapy.Spider):
 
     def parse(self, response):
 
-        title = response.css("#productTitle::text").get()
-
-        price = (
-            response.css(".a-price-whole::text").get()
-            or response.css("#priceblock_dealprice::text").get()
-            or response.css("#priceblock_ourprice::text").get()
+        title = self._clean_text(
+            response.css("#productTitle::text").get()
+            or response.css("#title::text").get()
+            or response.css("h1::text").get()
         )
 
-        availability = response.css("#availability span::text").get()
+        price_raw = (
+            response.css("span.a-price span.a-offscreen::text").get()
+            or response.css("#priceblock_dealprice::text").get()
+            or response.css("#priceblock_ourprice::text").get()
+            or response.css(".a-price-whole::text").get()
+        )
+        price = self._parse_price(price_raw)
+
+        availability = self._clean_text(response.css("#availability span::text").get())
+        image_url = self._extract_image_url(response)
+        brand = self._extract_brand_from_jsonld(response) or self._extract_brand_from_byline(response)
 
         yield {
-            "title": title.strip() if title else None,
+            "asin": self.asin,
+            "title": title,
             "price": price,
-            "availability": availability
+            "image_url": image_url,
+            "brand": brand,
+            "availability": availability,
+            "product_url": response.url,
         }

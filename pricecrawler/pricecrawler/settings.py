@@ -46,9 +46,9 @@ DOWNLOAD_DELAY = 1
 
 # Enable or disable downloader middlewares
 # See https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
-#DOWNLOADER_MIDDLEWARES = {
-#    "pricecrawler.middlewares.PricecrawlerDownloaderMiddleware": 543,
-#}
+DOWNLOADER_MIDDLEWARES = {
+    "pricecrawler.middlewares.RotatingProxyMiddleware": 543,
+}
 
 # Enable or disable extensions
 # See https://docs.scrapy.org/en/latest/topics/extensions.html
@@ -64,16 +64,16 @@ DOWNLOAD_DELAY = 1
 
 # Enable and configure the AutoThrottle extension (disabled by default)
 # See https://docs.scrapy.org/en/latest/topics/autothrottle.html
-#AUTOTHROTTLE_ENABLED = True
+AUTOTHROTTLE_ENABLED = True
 # The initial download delay
-#AUTOTHROTTLE_START_DELAY = 5
+AUTOTHROTTLE_START_DELAY = 1
 # The maximum download delay to be set in case of high latencies
-#AUTOTHROTTLE_MAX_DELAY = 60
+AUTOTHROTTLE_MAX_DELAY = 15
 # The average number of requests Scrapy should be sending in parallel to
 # each remote server
-#AUTOTHROTTLE_TARGET_CONCURRENCY = 1.0
+AUTOTHROTTLE_TARGET_CONCURRENCY = 1.0
 # Enable showing throttling stats for every response received:
-#AUTOTHROTTLE_DEBUG = False
+AUTOTHROTTLE_DEBUG = False
 
 # Enable and configure HTTP caching (disabled by default)
 # See https://docs.scrapy.org/en/latest/topics/downloader-middleware.html#httpcache-middleware-settings
@@ -85,3 +85,21 @@ DOWNLOAD_DELAY = 1
 
 # Set settings whose default value is deprecated to a future-proof value
 FEED_EXPORT_ENCODING = "utf-8"
+
+# Retry and timeout safety for unstable free proxies.
+RETRY_ENABLED = True
+RETRY_TIMES = 5
+DOWNLOAD_TIMEOUT = 10
+RANDOMIZE_DOWNLOAD_DELAY = True
+
+# Rotating proxy middleware settings.
+ROTATING_PROXY_SELECTION_STRATEGY = "random"  # "random" or "round_robin"
+ROTATING_PROXY_COOLDOWN_SECONDS = 300
+ROTATING_PROXY_MIN_POOL_SIZE = 8
+ROTATING_PROXY_VALIDATE_TIMEOUT_SECONDS = 5.0
+ROTATING_PROXY_MAX_VALIDATE_PER_REFRESH = 60
+ROTATING_PROXY_RETRY_REASON_PREFIX = "rotating_proxy"
+ROTATING_PROXY_SOURCES = [
+    "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+    "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
+]

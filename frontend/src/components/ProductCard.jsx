@@ -1,11 +1,39 @@
 import RecommendationBadge from "./RecommendationBadge"
 import { formatCurrency, formatPercent } from "../lib/formatters"
 
+function formatFetchMethod(value) {
+  const normalized = String(value || "").trim()
+  if (!normalized) return null
+
+  const labels = {
+    scraper: "Direct scraper",
+    scraper_search_fallback: "Scraper search fallback",
+    zyte: "Zyte",
+    fallback: "Fallback data",
+    seed: "Seed data",
+    unknown: "Unknown fetch path",
+  }
+
+  return labels[normalized] || normalized.replaceAll("_", " ")
+}
+
 function ProductCard({ product, actions, footer }) {
   if (!product) return null
 
   const avg30 = Number(product.average_30d)
   const deltaPct = Number(product.delta_from_avg_pct)
+  const targetMin = product.target_price_min != null ? Number(product.target_price_min) : null
+  const targetMax = product.target_price_max != null ? Number(product.target_price_max) : null
+  const refreshInterval = product.refresh_interval_minutes != null ? Number(product.refresh_interval_minutes) : null
+
+  const targetLabel = (() => {
+    if (Number.isFinite(targetMin) && Number.isFinite(targetMax) && targetMin !== targetMax) {
+      return `${formatCurrency(targetMin)} - ${formatCurrency(targetMax)}`
+    }
+    if (Number.isFinite(targetMax)) return formatCurrency(targetMax)
+    if (Number.isFinite(targetMin)) return formatCurrency(targetMin)
+    return formatCurrency(product.target_price)
+  })()
 
   return (
     <article className="product-card">
@@ -22,6 +50,11 @@ function ProductCard({ product, actions, footer }) {
           <div className="stack" style={{ gap: 6 }}>
             <h3 className="product-title">{product.name}</h3>
             <p className="section-sub">{product.source || "Tracked source"}</p>
+            {product.brand ? <p className="section-sub">Brand: {product.brand}</p> : null}
+            {Number.isFinite(refreshInterval) ? <p className="section-sub">Checks every {refreshInterval} min</p> : null}
+            {formatFetchMethod(product.last_fetch_method) ? (
+              <p className="section-sub">Latest fetch: {formatFetchMethod(product.last_fetch_method)}</p>
+            ) : null}
           </div>
           <RecommendationBadge label={product.recommendation} />
         </div>
@@ -33,7 +66,7 @@ function ProductCard({ product, actions, footer }) {
           </div>
           <div>
             <span className="metric-label">Target</span>
-            <strong>{formatCurrency(product.target_price)}</strong>
+            <strong>{targetLabel}</strong>
           </div>
           <div>
             <span className="metric-label">30D avg</span>

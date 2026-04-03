@@ -7,5 +7,6 @@ export function formatCurrency(value) {
 export function formatPercent(value) {
   const amount = Number(value)
   if (!Number.isFinite(amount)) return "N/A"
-  return `${amount > 0 ? "+" : ""}${amount.toFixed(1)}%`
+  const sign = amount >= 0 ? "+" : "-"
+  return `${sign}${Math.abs(amount).toFixed(1)}%`
 }

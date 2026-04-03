@@ -6,3 +6,4 @@ requests
 beautifulsoup4
 apscheduler
 scrapy
+python-dotenv

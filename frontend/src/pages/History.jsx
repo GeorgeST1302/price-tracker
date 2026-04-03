@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import PriceChart from "../components/PriceChart"
 import { apiJson } from "../lib/apiBaseUrl"
@@ -17,6 +17,7 @@ function History() {
   const [range, setRange] = useState("30d")
   const [loadingProducts, setLoadingProducts] = useState(true)
   const [loadingHistory, setLoadingHistory] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState(null)
 
   useEffect(() => {
@@ -45,7 +46,7 @@ function History() {
     }
   }, [])
 
-  async function loadHistory(productId, nextRange = range) {
+  const loadHistory = useCallback(async (productId, nextRange) => {
     setLoadingHistory(true)
     setError(null)
 
@@ -58,25 +59,33 @@ function History() {
     } finally {
       setLoadingHistory(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     if (!selectedProductId) return
     void loadHistory(selectedProductId, range)
-  }, [selectedProductId, range])
+  }, [loadHistory, selectedProductId, range])
 
-  async function refreshNow() {
+  const runSilentSync = useCallback(async () => {
     if (!selectedProductId) return
-
-    setError(null)
-
+    setSyncing(true)
     try {
-      await apiJson(`/products/${selectedProductId}/refresh`, { method: "POST" })
+      await apiJson(`/products/${selectedProductId}/refresh`, { method: "POST", timeoutMs: 30000 })
       await loadHistory(selectedProductId, range)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+    } catch {
+      // keep silent to avoid interrupting chart exploration
+    } finally {
+      setSyncing(false)
     }
-  }
+  }, [selectedProductId, range, loadHistory])
+
+  useEffect(() => {
+    if (!selectedProductId) return undefined
+    const timer = window.setInterval(() => {
+      void runSilentSync()
+    }, 60000)
+    return () => window.clearInterval(timer)
+  }, [selectedProductId, runSilentSync])
 
   const selectedProduct = products.find((product) => String(product.id) === String(selectedProductId))
 
@@ -121,11 +130,7 @@ function History() {
             </select>
           </label>
 
-          <div className="row">
-            <button className="button" type="button" onClick={refreshNow} disabled={!selectedProductId || loadingHistory}>
-              Refresh price now
-            </button>
-          </div>
+          <p className="section-sub">{syncing ? "Auto-syncing price..." : "Auto-sync runs in background every minute while this page is open."}</p>
         </div>
       )}
 
@@ -135,7 +140,7 @@ function History() {
             <b>{selectedProduct.name}</b>
           </p>
           <p className="section-sub">
-            Target: {formatCurrency(selectedProduct.target_price)} | Source: {selectedProduct.source || "Tracked source"}
+            Target: {formatCurrency(selectedProduct.target_price_min)} - {formatCurrency(selectedProduct.target_price_max)} | Source: {selectedProduct.source || "Tracked source"}
           </p>
         </div>
       ) : null}
@@ -158,6 +163,7 @@ function History() {
                   <tr>
                     <th>Timestamp</th>
                     <th>Price</th>
+                    <th>Fetch path</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -165,6 +171,7 @@ function History() {
                     <tr key={entry.id}>
                       <td>{new Date(entry.timestamp).toLocaleString()}</td>
                       <td>{formatCurrency(entry.price)}</td>
+                      <td>{entry.fetch_method || "-"}</td>
                     </tr>
                   ))}
                 </tbody>

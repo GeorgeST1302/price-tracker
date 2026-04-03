@@ -6,11 +6,22 @@ import time
 
 import requests
 
+try:
+    from ..config import load_backend_env
+except ImportError:
+    try:
+        from config import load_backend_env
+    except ImportError:
+        load_backend_env = None
+
+if load_backend_env is not None:
+    load_backend_env()
+
 logger = logging.getLogger(__name__)
 
 ZYTE_API_TOKEN = os.getenv("ZYTE_API_TOKEN")
 ZYTE_PROJECT_ID = os.getenv("ZYTE_PROJECT_ID")
-ZYTE_JOB_ID = os.getenv("ZYTE_JOB_ID")
+ZYTE_SPIDER_NAME = os.getenv("ZYTE_SPIDER_NAME") or os.getenv("ZYTE_JOB_ID")
 ZYTE_API_HOST = os.getenv("ZYTE_API_HOST", "https://app.zyte.com")
 ZYTE_STORAGE_HOST = os.getenv("ZYTE_STORAGE_HOST", "https://storage.zyte.com")
 
@@ -22,12 +33,12 @@ class ZyteConfigError(RuntimeError):
 def _require_config():
     if not ZYTE_API_TOKEN:
         raise ZyteConfigError("set ZYTE_API_TOKEN to trigger Zyte jobs")
-    if not ZYTE_PROJECT_ID or not ZYTE_JOB_ID:
-        raise ZyteConfigError("set ZYTE_PROJECT_ID and ZYTE_JOB_ID for Zyte runs")
+    if not ZYTE_PROJECT_ID or not ZYTE_SPIDER_NAME:
+        raise ZyteConfigError("set ZYTE_PROJECT_ID and ZYTE_SPIDER_NAME for Zyte runs")
     return {
         "token": ZYTE_API_TOKEN,
         "project": ZYTE_PROJECT_ID,
-        "spider": ZYTE_JOB_ID,
+        "spider": ZYTE_SPIDER_NAME,
     }
 
 
@@ -67,6 +78,15 @@ def _normalize_output_item(item, asin: str):
 
     title = item.get("title") or item.get("name")
     price = item.get("price") or item.get("latest_price")
+    image_url = item.get("image_url") or item.get("image") or item.get("imageUrl")
+    brand_obj = item.get("brand")
+    brand = None
+    if isinstance(brand_obj, str):
+        brand = brand_obj.strip() or None
+    elif isinstance(brand_obj, dict):
+        maybe = brand_obj.get("name")
+        brand = str(maybe).strip() if maybe else None
+
     if title is None or price is None:
         return None
 
@@ -81,6 +101,8 @@ def _normalize_output_item(item, asin: str):
         "price": normalized_price,
         "source": "Amazon India",
         "purchase_url": f"https://www.amazon.in/dp/{asin}",
+        "image_url": image_url,
+        "brand": brand,
         "fetch_method": "zyte",
     }
 
