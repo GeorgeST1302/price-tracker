@@ -114,6 +114,45 @@ def _enforce_target_below_current_price(target_max: float, current_price: float 
         )
 
 
+def _resolve_current_price_for_guardrail(product: models.Product) -> float | None:
+    """
+    Resolve a current price for strict target validation:
+    1) latest stored history
+    2) live fetch fallback
+    """
+    latest_price_attr = getattr(product, "latest_price", None)
+    if latest_price_attr is not None:
+        try:
+            return float(latest_price_attr)
+        except Exception:
+            pass
+
+    db = SessionLocal()
+    try:
+        latest_entry = _get_latest_price_entry(db, product.id)
+    finally:
+        db.close()
+
+    if latest_entry and latest_entry.price is not None:
+        try:
+            return float(latest_entry.price)
+        except Exception:
+            pass
+
+    try:
+        live = get_product_data(
+            product.asin,
+            source_key=product.source_key,
+            external_id=product.external_id,
+            product_url=product.product_url,
+        )
+        if live and live.get("price") is not None:
+            return float(live["price"])
+    except Exception:
+        return None
+    return None
+
+
 def _classify_deal_status(
     *,
     current_price: float | None,
@@ -646,8 +685,12 @@ def update_product_target(product_id: int, update: schemas.ProductTargetUpdate, 
     if float(target_min) > float(target_max):
         raise HTTPException(status_code=400, detail="target_price_min must be <= target_price_max")
 
-    latest_entry = _get_latest_price_entry(db, product.id)
-    latest_price = float(latest_entry.price) if latest_entry and latest_entry.price is not None else None
+    latest_price = _resolve_current_price_for_guardrail(product)
+    if latest_price is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Could not validate target against current price right now. Please try again in a moment.",
+        )
     _enforce_target_below_current_price(float(target_max), latest_price, context="Update target")
 
     product.target_price = float(target_max)
@@ -867,7 +910,12 @@ def create_alert(alert: schemas.AlertCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="target_price_min must be <= target_price_max")
 
     latest_entry = _get_latest_price_entry(db, product.id)
-    latest_price = float(latest_entry.price) if latest_entry and latest_entry.price is not None else getattr(product, "latest_price", None)
+    latest_price = _resolve_current_price_for_guardrail(product)
+    if latest_price is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Could not validate alert target against current price right now. Please try again in a moment.",
+        )
     _enforce_target_below_current_price(float(target_max), latest_price, context="Create alert")
 
     # Keep only one pending alert per product: creating again updates/replaces it.
@@ -893,9 +941,9 @@ def create_alert(alert: schemas.AlertCreate, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(existing_pending)
 
-        if latest_entry and latest_entry.price is not None:
+        if latest_price is not None:
             try:
-                _trigger_alert_if_needed(existing_pending, product, float(latest_entry.price), db)
+                _trigger_alert_if_needed(existing_pending, product, float(latest_price), db)
                 db.refresh(existing_pending)
             except Exception:
                 db.rollback()
@@ -916,9 +964,9 @@ def create_alert(alert: schemas.AlertCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_alert)
 
-    if latest_entry and latest_entry.price is not None:
+    if latest_price is not None:
         try:
-            _trigger_alert_if_needed(new_alert, product, float(latest_entry.price), db)
+            _trigger_alert_if_needed(new_alert, product, float(latest_price), db)
             db.refresh(new_alert)
         except Exception:
             db.rollback()
