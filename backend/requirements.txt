@@ -7,3 +7,7 @@ beautifulsoup4
 apscheduler
 scrapy
 python-dotenv
+scrapling
+curl-cffi
+browserforge
+playwright

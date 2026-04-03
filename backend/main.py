@@ -1,14 +1,18 @@
 import importlib
+import json
 import os
 import re
 import hashlib
+import time
 from urllib.parse import urlsplit, urlunsplit
 from datetime import datetime, timedelta
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+from bs4 import BeautifulSoup
 
 try:
     from .config import load_backend_env
@@ -21,12 +25,17 @@ try:
     from . import models, schemas
     from .database import SessionLocal, engine, ensure_sqlite_schema
     from .services.marketplace_service import detect_source_key_from_url, get_source_label, normalize_source_key, search_marketplace_products
+    from .services.crawl_framework import CrawlRequest, CrawlSpider, ProxyRotator, RequestsSession, ScraplingSession, SpiderRunner
     from .services.product_service import (
         compute_recommendation_details,
         compute_trend,
         get_product_data,
         resolve_asin,
     )
+    from .services.scraper_service import fetch_amazon_price_scraper
+    from .services.scrapy_runner import fetch_price_with_local_scrapy
+    from .services.scrapling_service import fetch_amazon_price_with_scrapling
+    from .services.zyte_client import fetch_price_from_zyte
     from .services.telegram_client import is_telegram_configured, send_triggered_alert
     from .services.email_client import is_email_configured, send_email_alert
 except ImportError:
@@ -34,12 +43,17 @@ except ImportError:
     import schemas
     from database import SessionLocal, engine, ensure_sqlite_schema
     from services.marketplace_service import detect_source_key_from_url, get_source_label, normalize_source_key, search_marketplace_products
+    from services.crawl_framework import CrawlRequest, CrawlSpider, ProxyRotator, RequestsSession, ScraplingSession, SpiderRunner
     from services.product_service import (
         compute_recommendation_details,
         compute_trend,
         get_product_data,
         resolve_asin,
     )
+    from services.scraper_service import fetch_amazon_price_scraper
+    from services.scrapy_runner import fetch_price_with_local_scrapy
+    from services.scrapling_service import fetch_amazon_price_with_scrapling
+    from services.zyte_client import fetch_price_from_zyte
     from services.telegram_client import is_telegram_configured, send_triggered_alert
     from services.email_client import is_email_configured, send_email_alert
 
@@ -243,6 +257,15 @@ def root():
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
+
+
+@app.get("/keepalive")
+def keepalive():
+    return {
+        "status": "alive",
+        "service": "pricepulse-backend",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }
 
 
 @app.get("/notifications/status")
@@ -651,6 +674,158 @@ def get_products(q: str | None = Query(default=None), db: Session = Depends(get_
 @app.get("/products/search", response_model=list[schemas.ProductSearchResult])
 def search_products(q: str = Query(min_length=2), limit: int = Query(default=6, ge=1, le=12)):
     return search_marketplace_products(q, limit=limit)
+
+
+@app.get("/diagnostics/scraper-benchmark")
+def scraper_benchmark(asin: str = Query(min_length=10, max_length=10)):
+    """
+    Compare fetch performance across available Amazon fetchers.
+    """
+    asin_value = asin.strip().upper()
+    runners = [
+        ("scrapling", lambda: fetch_amazon_price_with_scrapling(asin_value)),
+        ("scraper", lambda: fetch_amazon_price_scraper(asin_value)),
+        ("scrapy_local", lambda: fetch_price_with_local_scrapy(asin_value)),
+        ("zyte", lambda: fetch_price_from_zyte(asin_value)),
+    ]
+
+    results: list[dict] = []
+    for method, fn in runners:
+        started = time.perf_counter()
+        error = None
+        data = None
+        try:
+            data = fn()
+        except Exception as exc:
+            error = str(exc)
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+        success = bool(data and isinstance(data, dict) and data.get("price") is not None)
+        results.append(
+            {
+                "method": method,
+                "success": success,
+                "duration_ms": elapsed_ms,
+                "price": (float(data["price"]) if success else None),
+                "title": (str(data.get("title"))[:140] if success and data.get("title") else None),
+                "fetch_method": (data.get("fetch_method") if success else None),
+                "error": error,
+            }
+        )
+
+    ranked = sorted(results, key=lambda item: (not item["success"], item["duration_ms"]))
+    winner = next((item for item in ranked if item["success"]), None)
+    return {
+        "asin": asin_value,
+        "winner": winner["method"] if winner else None,
+        "results": ranked,
+    }
+
+
+def _build_adhoc_runner(payload: schemas.CrawlRunRequest) -> SpiderRunner:
+    clean_urls = [str(url).strip() for url in payload.start_urls if str(url).strip()]
+    if not clean_urls:
+        raise HTTPException(status_code=400, detail="start_urls must contain at least one URL.")
+
+    class AdHocSpider(CrawlSpider):
+        name = "adhoc_crawl"
+        start_urls = clean_urls
+        concurrency = max(1, min(20, int(payload.concurrency)))
+        per_domain_concurrency = max(1, min(10, int(payload.per_domain_concurrency)))
+        download_delay_seconds = max(0.0, float(payload.download_delay_seconds))
+        max_pages = max(1, min(500, int(payload.max_pages)))
+        max_retries = max(0, min(6, int(payload.max_retries)))
+        session_map = {"default": str(payload.session_id or "http").strip().lower() or "http"}
+        blocked_statuses = {403, 429, 503}
+        blocked_patterns = ("captcha", "verify you are human", "access denied", "temporarily blocked")
+
+        async def parse(self, response):
+            soup = BeautifulSoup(response.text or "", "html.parser")
+            title = (soup.title.get_text(" ", strip=True) if soup.title else None) or response.url
+            page_text = soup.get_text(" ", strip=True)
+            price_match = re.search(r"(?:₹|rs\.?|inr)\s*([0-9][0-9,]*\.?[0-9]{0,2})", page_text, re.IGNORECASE)
+            price = None
+            if price_match:
+                try:
+                    price = float(price_match.group(1).replace(",", ""))
+                except Exception:
+                    price = None
+
+            outputs: list[dict | CrawlRequest] = [
+                {
+                    "url": response.url,
+                    "status": response.status,
+                    "title": title,
+                    "price": price,
+                    "blocked": response.blocked,
+                    "session_id": response.request.session_id,
+                    "elapsed_ms": response.elapsed_ms,
+                }
+            ]
+
+            depth = int(response.request.meta.get("depth", 0))
+            if depth < 1:
+                base_domain = urlsplit(response.url).hostname or ""
+                for a in soup.select("a[href]"):
+                    href = (a.get("href") or "").strip()
+                    if not href or href.startswith("#") or href.startswith("javascript:"):
+                        continue
+                    absolute = href
+                    if href.startswith("/"):
+                        absolute = f"{urlsplit(response.url).scheme}://{base_domain}{href}"
+                    parsed = urlsplit(absolute)
+                    if not parsed.scheme.startswith("http"):
+                        continue
+                    if parsed.hostname != base_domain:
+                        continue
+                    outputs.append(
+                        CrawlRequest(
+                            url=absolute,
+                            callback=self.parse,
+                            session_id=response.request.session_id,
+                            meta={"depth": depth + 1},
+                        )
+                    )
+                    if len(outputs) >= 5:
+                        break
+            return outputs
+
+    spider = AdHocSpider()
+    sessions = {
+        "http": RequestsSession(timeout_seconds=20),
+        "scrapling": ScraplingSession(
+            timeout_seconds=int(os.getenv("PRICEPULSE_SCRAPLING_TIMEOUT_SECONDS", "15")),
+            verify_ssl=(os.getenv("PRICEPULSE_SCRAPLING_VERIFY_SSL", "0") == "1"),
+        ),
+    }
+    selected_session = str(payload.session_id or "http").strip().lower() or "http"
+    if selected_session not in sessions:
+        raise HTTPException(status_code=400, detail=f"Unsupported session_id: {selected_session}")
+
+    proxies = payload.proxies or []
+    proxy_rotator = ProxyRotator(proxies)
+    return SpiderRunner(spider=spider, sessions=sessions, proxy_rotator=proxy_rotator)
+
+
+@app.post("/diagnostics/crawl/run", response_model=schemas.CrawlRunResponse)
+async def run_crawl(payload: schemas.CrawlRunRequest):
+    runner = _build_adhoc_runner(payload)
+    result = await runner.run(resume=bool(payload.resume))
+    return {
+        "stats": result.stats.to_dict(),
+        "items": list(result.items),
+    }
+
+
+@app.post("/diagnostics/crawl/stream")
+async def stream_crawl(payload: schemas.CrawlRunRequest):
+    runner = _build_adhoc_runner(payload)
+
+    async def _stream():
+        async for item in runner.stream(resume=bool(payload.resume)):
+            yield json.dumps({"type": "item", "data": item}, ensure_ascii=False) + "\n"
+        yield json.dumps({"type": "done", "stats": runner.stats.to_dict()}, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(_stream(), media_type="application/x-ndjson")
 
 
 @app.get("/products/{product_id}", response_model=schemas.ProductResponse)

@@ -119,3 +119,20 @@ class AlertResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class CrawlRunRequest(BaseModel):
+    start_urls: list[str]
+    session_id: str = "http"
+    concurrency: int = 5
+    per_domain_concurrency: int = 2
+    download_delay_seconds: float = 0.5
+    max_pages: int = 30
+    max_retries: int = 2
+    resume: bool = False
+    proxies: list[str] | None = None
+
+
+class CrawlRunResponse(BaseModel):
+    stats: dict
+    items: list[dict]

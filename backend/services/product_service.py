@@ -4,6 +4,7 @@ try:
     from .api_fallback import fetch_amazon_price_api
     from .marketplace_service import fetch_marketplace_product, normalize_source_key
     from .generic_scraper_service import fetch_generic_product
+    from .scrapling_service import fetch_amazon_price_with_scrapling
     from .scrapy_runner import fetch_price_with_local_scrapy
     from .scraper_service import fetch_amazon_price_scraper, resolve_asin_from_search_term, search_amazon_products
     from .zyte_client import fetch_price_from_zyte
@@ -11,6 +12,7 @@ except ImportError:
     from services.api_fallback import fetch_amazon_price_api
     from services.marketplace_service import fetch_marketplace_product, normalize_source_key
     from services.generic_scraper_service import fetch_generic_product
+    from services.scrapling_service import fetch_amazon_price_with_scrapling
     from services.scrapy_runner import fetch_price_with_local_scrapy
     from services.scraper_service import fetch_amazon_price_scraper, resolve_asin_from_search_term, search_amazon_products
     from services.zyte_client import fetch_price_from_zyte
@@ -278,6 +280,13 @@ def _get_amazon_product_data(asin: str, fetch_mode: str | None = None):
         logger.warning("Zyte-only mode failed for ASIN=%s", asin)
         return None
 
+    logger.info("Trying Scrapling for ASIN=%s", asin)
+    data = fetch_amazon_price_with_scrapling(asin)
+    if data:
+        logger.info("Scrapling success for ASIN=%s", asin)
+        return _enrich_product_data(asin, data)
+
+    logger.info("Scrapling failed for ASIN=%s, trying requests scraper", asin)
     data = fetch_amazon_price_scraper(asin)
 
     if data:
