@@ -8,7 +8,7 @@ CORS_ORIGINS = "https://price-tracker-app.pages.dev"
 DEFAULT_REFRESH_MINUTES = "360"
 MIN_REFRESH_MINUTES = "15"
 MAX_CRON_REFRESHES_PER_RUN = "12"
-ALLOW_SYNTHETIC = "0"
+ALLOW_SYNTHETIC = "1"
 TELEGRAM_API_BASE = "https://api.telegram.org"
 # Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID with wrangler secret put.
 # For local wrangler dev against localhost, temporarily override CORS_ORIGINS.

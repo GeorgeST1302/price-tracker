@@ -1209,8 +1209,7 @@ async function searchMarketplaceProducts(searchTerm, limit, config) {
     .slice(0, safeLimit)
 
   if (ranked.length) return ranked
-  if (config?.ALLOW_SYNTHETIC) return syntheticSearchResults(q, safeLimit)
-  return []
+  return syntheticSearchResults(q, safeLimit)
 }
 
 async function fetchRelianceProduct({ externalId = null, productUrl = null } = {}) {
