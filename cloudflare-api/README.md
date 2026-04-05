@@ -22,7 +22,7 @@ This folder contains the Cloudflare-native backend for PricePulse so the app can
 Notes:
 
 - Search and refresh use live marketplace fetchers first: Amazon India, Reliance Digital, Snapdeal, then generic HTML/JSON-LD parsing.
-- Synthetic fallback is disabled in production by default (`ALLOW_SYNTHETIC = "0"` in `wrangler.toml`).
+- Synthetic fallback is enabled in production (`ALLOW_SYNTHETIC = "1"` in `wrangler.toml`) so search and refresh still return usable data when marketplace fetches are blocked.
 - Telegram delivery uses Worker secrets: `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
 - Scheduled refresh runs from a Worker cron trigger every 15 minutes and is capped per run with `MAX_CRON_REFRESHES_PER_RUN`.
 

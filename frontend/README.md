@@ -32,7 +32,7 @@ VITE_API_BASE_URL=http://localhost:8787
 Production:
 
 ```bash
-VITE_API_BASE_URL=https://price-tracker-api.<subdomain>.workers.dev
+VITE_API_BASE_URL=https://price-pulse-api.<subdomain>.workers.dev
 ```
 
 - no trailing slash in `VITE_API_BASE_URL`
@@ -87,6 +87,7 @@ Verified on April 3, 2026:
 Recommended order:
 
 1. Deploy the Cloudflare Worker API first and note the Worker URL, for example `https://price-tracker-api.<subdomain>.workers.dev`.
+1. Deploy the Cloudflare Worker API first and note the Worker URL, for example `https://price-pulse-api.<subdomain>.workers.dev`.
 2. Deploy this React dashboard to Cloudflare Pages with:
   - Build command: `npm install && npm run build`
   - Build directory: `dist`
