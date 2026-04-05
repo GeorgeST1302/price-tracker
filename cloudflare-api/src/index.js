@@ -173,6 +173,128 @@ async function requestWithRetries(url, options = {}, { timeoutMs = 15000, retrie
   throw lastError || new Error("Request failed")
 }
 
+function toProxyUrl(url) {
+  const normalized = String(url || "").trim()
+  if (!normalized) return null
+  const stripped = normalized.replace(/^https?:\/\//i, "")
+  return `https://r.jina.ai/http://${stripped}`
+}
+
+function extractFirstCurrencyValue(text) {
+  const match = String(text || "").match(/(?:Rs\.?|₹)\s*([0-9][0-9,]*)/i)
+  if (!match) return null
+  return extractPriceValue(match[1])
+}
+
+function parseProxyJsonText(text) {
+  const raw = String(text || "")
+  const start = raw.indexOf("{")
+  const end = raw.lastIndexOf("}")
+  if (start < 0 || end <= start) return null
+
+  try {
+    return JSON.parse(raw.slice(start, end + 1))
+  } catch {
+    return null
+  }
+}
+
+function parseAmazonProxySearchResults(text, limit = 3) {
+  const rows = []
+  const rawText = String(text || "")
+  const regex = /\[!\[Image \d+: ([^\]]+)\]\([^\)]*\)\]\((https?:\/\/www\.amazon\.in\/[^)]+\/dp\/([A-Z0-9]{10})\/[^)]*)\)/g
+  let match
+
+  while ((match = regex.exec(rawText)) && rows.length < limit) {
+    const title = cleanText(match[1])
+    const productUrl = normalizeProductUrl("amazon", match[2])
+    const asin = match[3]
+    const window = rawText.slice(match.index, Math.min(rawText.length, match.index + 12000))
+    const price = extractFirstCurrencyValue(window)
+    const imageMatch = match[0].match(/\]\((https:\/\/m\.media-amazon\.com\/[^)]+)\)/i)
+    const imageUrl = normalizeImageUrl(imageMatch ? imageMatch[1] : null)
+
+    const row = normalizeSearchRow({
+      source_key: "amazon",
+      source: getSourceLabel("amazon"),
+      asin,
+      external_id: asin,
+      title,
+      price,
+      image_url: imageUrl,
+      product_url: productUrl,
+      seller: "Amazon Marketplace",
+    })
+
+    if (row) rows.push(row)
+  }
+
+  return rows
+}
+
+function parseAmazonProxyProduct(text, asin, productUrl) {
+  const raw = String(text || "")
+  const title =
+    cleanText(raw.match(/^#\s+(.+)$/m)?.[1]) ||
+    cleanText(raw.match(/^Title:\s*(.+)$/m)?.[1]) ||
+    cleanText(raw.match(/\[##\s*([^\]]+)\]\(/m)?.[1])
+  const price = extractFirstCurrencyValue(raw)
+  const imageMatch = raw.match(/!\[Image \d+: [^\]]+\]\((https:\/\/m\.media-amazon\.com\/[^)]+)\)/i)
+  const imageUrl = normalizeImageUrl(imageMatch ? imageMatch[1] : null)
+
+  if (!title || !Number.isFinite(price)) return null
+
+  return {
+    asin,
+    title,
+    price: round2(price),
+    source: getSourceLabel("amazon"),
+    image_url: imageUrl,
+    brand: null,
+    purchase_url: productUrl,
+    external_id: asin,
+    fetch_method: "scraper_proxy",
+  }
+}
+
+function parseRelianceProxySearchResults(text) {
+  const payload = parseProxyJsonText(text)
+  const items = Array.isArray(payload?.items) ? payload.items : []
+  const rows = []
+
+  for (const item of items) {
+    const parsed = extractRelianceItem(item)
+    if (parsed) rows.push(parsed)
+  }
+
+  return rows
+}
+
+function parseRelianceProxyProduct(text, itemCode, productUrl) {
+  const payload = parseProxyJsonText(text)
+  const item = payload?.data || null
+  if (!item || typeof item !== "object") return null
+
+  const title = cleanText(item.name)
+  const brand = cleanText(item?.brand?.name)
+  const price = extractPriceValue(item?.price?.effective?.min)
+  const medias = Array.isArray(item.medias) ? item.medias : []
+  const imageUrl = normalizeImageUrl(medias.find((media) => media && typeof media === "object" && media.url)?.url || null)
+  if (!title || !Number.isFinite(price)) return null
+
+  return {
+    title,
+    price: round2(price),
+    image_url: imageUrl,
+    brand,
+    source_key: "reliance_digital",
+    source: getSourceLabel("reliance_digital"),
+    purchase_url: productUrl,
+    external_id: itemCode,
+    fetch_method: "reliance_api_proxy",
+  }
+}
+
 function extractJsonLdPayloads(html) {
   const payloads = []
   const regex = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
@@ -888,7 +1010,22 @@ async function searchRelianceProducts(searchTerm, limit = 3) {
       if (parsed) rows.push(parsed)
       if (rows.length >= safeLimit) break
     }
-    return rows
+    if (rows.length) return rows
+  } catch {
+    // Fall through to proxy fallback.
+  }
+
+  try {
+    const proxyUrl = toProxyUrl(`https://www.reliancedigital.in/ext/raven-api/catalog/v1.0/products?q=${encodeURIComponent(q)}`)
+    if (!proxyUrl) return []
+    const response = await requestWithRetries(proxyUrl, {
+      headers: { Accept: "text/plain,text/markdown,*/*" },
+    })
+    if (!response.ok) return []
+    const text = await response.text()
+    const parsed = parseRelianceProxySearchResults(text).slice(0, safeLimit)
+    console.log("search proxy provider=reliance", JSON.stringify({ query: q, rows: parsed.length }))
+    return parsed
   } catch {
     return []
   }
@@ -1029,7 +1166,22 @@ async function searchAmazonProducts(searchTerm, limit = 3) {
       if (row) rows.push(row)
     }
 
-    return rows
+    if (rows.length) return rows
+  } catch {
+    // Fall through to proxy fallback.
+  }
+
+  try {
+    const proxyUrl = toProxyUrl(`https://www.amazon.in/gp/aw/s?k=${encodeURIComponent(q)}`)
+    if (!proxyUrl) return []
+    const response = await requestWithRetries(proxyUrl, {
+      headers: { Accept: "text/plain,text/markdown,*/*" },
+    })
+    if (!response.ok) return []
+    const text = await response.text()
+    const parsed = parseAmazonProxySearchResults(text, safeLimit)
+    console.log("search proxy provider=amazon", JSON.stringify({ query: q, rows: parsed.length }))
+    return parsed
   } catch {
     return []
   }
@@ -1084,18 +1236,32 @@ async function fetchRelianceProduct({ externalId = null, productUrl = null } = {
     const slug = item.slug
     const purchaseUrl = productUrl || (slug ? `https://www.reliancedigital.in/${slug}/p/${itemCode}` : null)
     const numericPrice = extractPriceValue(price)
-    if (!title || !Number.isFinite(numericPrice)) return null
-    return {
-      title,
-      price: round2(numericPrice),
-      image_url: imageUrl,
-      brand,
-      source_key: "reliance_digital",
-      source: getSourceLabel("reliance_digital"),
-      purchase_url: purchaseUrl,
-      external_id: itemCode,
-      fetch_method: "reliance_api",
+    if (title && Number.isFinite(numericPrice)) {
+      return {
+        title,
+        price: round2(numericPrice),
+        image_url: imageUrl,
+        brand,
+        source_key: "reliance_digital",
+        source: getSourceLabel("reliance_digital"),
+        purchase_url: purchaseUrl,
+        external_id: itemCode,
+        fetch_method: "reliance_api",
+      }
     }
+  } catch {
+    // Fall through to proxy fallback.
+  }
+
+  try {
+    const proxyUrl = toProxyUrl(`https://www.reliancedigital.in/ext/raven-api/catalog/v1.0/products/${encodeURIComponent(itemCode)}`)
+    if (!proxyUrl) return null
+    const response = await requestWithRetries(proxyUrl, {
+      headers: { Accept: "text/plain,text/markdown,*/*" },
+    })
+    if (!response.ok) return null
+    const text = await response.text()
+    return parseRelianceProxyProduct(text, itemCode, productUrl || null)
   } catch {
     return null
   }
@@ -1167,19 +1333,33 @@ async function fetchAmazonProduct({ asin = null, productUrl = null } = {}) {
     const imageUrl = normalizeImageUrl(extractMetaContent(html, "property", "og:image"))
     const brand = extractBrandFromJsonLd(payloads)
 
-    if (!title || !Number.isFinite(price)) return null
-    return {
-      asin: resolvedAsin,
-      title,
-      price: round2(price),
-      image_url: imageUrl,
-      brand,
-      source_key: "amazon",
-      source: getSourceLabel("amazon"),
-      purchase_url: url,
-      external_id: resolvedAsin,
-      fetch_method: "scraper",
+    if (title && Number.isFinite(price)) {
+      return {
+        asin: resolvedAsin,
+        title,
+        price: round2(price),
+        image_url: imageUrl,
+        brand,
+        source_key: "amazon",
+        source: getSourceLabel("amazon"),
+        purchase_url: url,
+        external_id: resolvedAsin,
+        fetch_method: "scraper",
+      }
     }
+  } catch {
+    // Fall through to proxy fallback.
+  }
+
+  try {
+    const proxyUrl = toProxyUrl(`https://www.amazon.in/dp/${resolvedAsin}`)
+    if (!proxyUrl) return null
+    const response = await requestWithRetries(proxyUrl, {
+      headers: { Accept: "text/plain,text/markdown,*/*" },
+    })
+    if (!response.ok) return null
+    const text = await response.text()
+    return parseAmazonProxyProduct(text, resolvedAsin, `https://www.amazon.in/dp/${resolvedAsin}`)
   } catch {
     return null
   }
