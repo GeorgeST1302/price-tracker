@@ -4,16 +4,18 @@ export function getApiBaseUrl() {
   const fromEnv = import.meta.env.VITE_API_BASE_URL
   const normalizedFromEnv = String(fromEnv || "").trim().replace(/\/$/, "")
   const isPlaceholder =
-    !normalizedFromEnv || normalizedFromEnv.includes("your-backend-service.onrender.com")
+    !normalizedFromEnv ||
+    normalizedFromEnv.includes("<subdomain>") ||
+    normalizedFromEnv.includes("your-")
 
   if (!isPlaceholder) return normalizedFromEnv
 
   const host = window.location.hostname
-  if (host === "localhost") return "http://localhost:8000"
-  if (host === "127.0.0.1") return "http://127.0.0.1:8000"
+  if (host === "localhost") return "http://localhost:8787"
+  if (host === "127.0.0.1") return "http://127.0.0.1:8787"
 
   // In production, explicitly require VITE_API_BASE_URL so the app points
-  // to the deployed backend instead of accidentally calling localhost.
+  // to the deployed Worker instead of accidentally calling localhost.
   console.warn("VITE_API_BASE_URL is not set; API calls may fail in production")
   return ""
 }
@@ -21,9 +23,9 @@ export function getApiBaseUrl() {
 const DEFAULT_TIMEOUT_MS = 20000
 
 export const API_TIMEOUT_MESSAGE =
-  "The backend is taking too long to respond. If Render is waking the API up, wait a few seconds and try again."
+  "The Worker is taking too long to respond. If it is warming up, wait a few seconds and try again."
 
-function formatFastApiDetail(detail) {
+function formatApiDetail(detail) {
   if (!detail) return null
 
   if (typeof detail === "string") {
@@ -59,7 +61,7 @@ async function extractApiErrorMessage(response) {
 
     if (contentType.includes("application/json")) {
       const payload = await response.json()
-      const detailMessage = formatFastApiDetail(payload?.detail)
+      const detailMessage = formatApiDetail(payload?.detail)
       if (detailMessage) return detailMessage
       return fallback
     }

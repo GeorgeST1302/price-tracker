@@ -1,6 +1,6 @@
 # PricePulse Frontend (Vite + React)
 
-This app is the user-facing dashboard for PricePulse. It consumes the FastAPI backend and provides full product tracking workflows.
+This app is the user-facing dashboard for PricePulse. It consumes the Cloudflare Worker backend and provides full product tracking workflows.
 
 ## Features
 
@@ -26,23 +26,21 @@ This app is the user-facing dashboard for PricePulse. It consumes the FastAPI ba
 Create `frontend/.env` from `frontend/.env.example`:
 
 ```bash
-VITE_API_BASE_URL=http://127.0.0.1:8000
-VITE_DEMO_CHECKOUT_URL=
+VITE_API_BASE_URL=http://localhost:8787
 ```
 
 Production:
 
 ```bash
-VITE_API_BASE_URL=https://your-backend-service.onrender.com
+VITE_API_BASE_URL=https://price-tracker-api.<subdomain>.workers.dev
 ```
 
-Rules:
 - no trailing slash in `VITE_API_BASE_URL`
 - never put secrets in Vite env vars
 
 ## Local development
 
-```bash
+```powershell
 cd frontend
 npm install
 npm run dev
@@ -51,8 +49,8 @@ npm run dev
 Frontend URL:
 - `http://localhost:5173`
 
-Backend must be running at:
-- `http://127.0.0.1:8000`
+Worker API must be running at:
+- `http://localhost:8787` via `wrangler dev`
 
 ## Build
 
@@ -62,20 +60,6 @@ npm run build
 
 Verified on April 3, 2026:
 - `npm run build` -> PASS
-
-## Render static deployment
-
-- Root Directory: `frontend`
-- Build Command: `npm install && npm run build`
-- Publish Directory: `dist`
-- Environment Variable:
-  - `VITE_API_BASE_URL=https://<your-backend>.onrender.com`
-
-Backend CORS must include this frontend domain:
-
-```bash
-CORS_ORIGINS=https://<your-frontend>.onrender.com,https://<your-landing>.onrender.com
-```
 
 ## Regression test checklist
 
@@ -97,3 +81,19 @@ CORS_ORIGINS=https://<your-frontend>.onrender.com,https://<your-landing>.onrende
   - `browser_enabled=false`
   - `alarm_enabled=false`
   - `email_enabled=false`
+
+## Deploying to Cloudflare Pages + Workers
+
+Recommended order:
+
+1. Deploy the Cloudflare Worker API first and note the Worker URL, for example `https://price-tracker-api.<subdomain>.workers.dev`.
+2. Deploy this React dashboard to Cloudflare Pages with:
+  - Build command: `npm install && npm run build`
+  - Build directory: `dist`
+3. Set `VITE_API_BASE_URL` in the Pages project to the Worker URL, without a trailing slash.
+4. After the Pages project has its final domain, tighten `CORS_ORIGINS` in `cloudflare-api/wrangler.toml` or in the Worker environment to only that exact origin.
+5. Deploy the Astro landing site last if you want it; it is optional for the app itself.
+
+Notes:
+- If you prefer to publish the Worker to a custom subdomain, use that URL for `VITE_API_BASE_URL`.
+- Secrets such as Telegram tokens must stay in the Worker environment; do not place them in Vite env vars.

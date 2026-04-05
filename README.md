@@ -2,15 +2,20 @@
 
 PricePulse is a full-stack web app for tracking product prices, comparing listings, and alerting users when prices meet their target range.
 
+Primary stack:
+- JavaScript Cloudflare Worker + D1 backend in [cloudflare-api/](cloudflare-api/)
+- React + Vite frontend in [frontend/](frontend/)
+- Astro landing page in [landing/](landing/) (optional)
+
 ## What is implemented now
 
 - Full-stack architecture:
-  - Frontend app: React + Vite (`frontend/`)
-  - Backend API: FastAPI + SQLAlchemy (`backend/`)
-  - Database: SQLite (`backend/pricepulse.db`)
+  - Frontend app: React + Vite ([frontend/](frontend/))
+  - Backend API: Cloudflare Worker + D1 ([cloudflare-api/](cloudflare-api/))
+  - Landing site: Astro static site ([landing/](landing/), optional)
 - External integrations:
   - Telegram Bot API for alerts
-  - Zyte integration and local Scrapy fallback for scraping paths
+  - Marketplace scraping and scheduled refresh in the JavaScript Worker
 - Product flow:
   - Search results across Amazon India, Reliance Digital, Snapdeal
   - Select one listing and start tracking
@@ -44,49 +49,28 @@ Core backend endpoints:
 - `GET /notifications/status`
 - `POST /notifications/test`
 
-## Render deployment (production)
+## Cloudflare deployment (Pages + Workers + D1)
 
-### 1) Backend Web Service (Render)
+This repo includes a Cloudflare-native backend in [cloudflare-api/](cloudflare-api/) so you can deploy without running the legacy Python stack.
 
-- Root Directory: `backend`
-- Build Command: `pip install -r requirements.txt`
-- Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+- API (Worker + D1): see [cloudflare-api/README.md](cloudflare-api/README.md)
+- End-to-end Cloudflare guide: see [DEPLOY_CLOUDFLARE.md](DEPLOY_CLOUDFLARE.md)
 
-Required backend environment variables:
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID`
-- `ZYTE_API_TOKEN`
-- `ZYTE_PROJECT_ID`
-- `ZYTE_SPIDER_NAME`
-- `CORS_ORIGINS` (include your frontend and landing URLs)
-
-Recommended backend environment variables:
-- `PRICEPULSE_ENABLE_SCHEDULER=1`
-- `PRICEPULSE_DEFAULT_REFRESH_INTERVAL_MINUTES=15`
-- `PRICEPULSE_ENFORCE_TARGET_BELOW_CURRENT=1`
-- `PRICEPULSE_ENABLE_LOCAL_SCRAPY=1`
-
-### 2) Frontend Static Site (Render)
-
-- Root Directory: `frontend`
-- Build Command: `npm install && npm run build`
-- Publish Directory: `dist`
-
-Required frontend environment variable:
-- `VITE_API_BASE_URL=https://<your-backend-service>.onrender.com`
-
-### 3) Landing Static Site (Astro, optional)
-
-- Root Directory: `landing`
-- Build Command: `npm install && npm run build`
-- Publish Directory: `dist`
+High level:
+- Deploy the Worker API first.
+- Deploy the React dashboard to Cloudflare Pages and set `VITE_API_BASE_URL` to the Worker URL.
+- After the Pages site at `https://price-tracker-app.pages.dev` is live, tighten `CORS_ORIGINS` in the Worker to only that exact origin.
+- Deploy the Astro landing site last if you want it; it is optional for the app itself.
+- Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` as Worker secrets before enabling alerts.
+- The Worker also runs scheduled refreshes every 15 minutes via cron.
 
 ## Local run
 
 Backend:
 ```powershell
-cd backend
-py -3 -m uvicorn main:app --reload --port 8000
+cd cloudflare-api
+npm install
+npm run dev
 ```
 
 Frontend:
@@ -106,9 +90,9 @@ npm run dev
 ## Verified test status (April 3, 2026)
 
 Build checks:
+- `cloudflare-api`: syntax check -> PASS
 - `frontend`: `npm run build` -> PASS
 - `landing`: `npm run build` -> PASS
-- `backend`: `py -3 -m compileall backend` -> PASS
 
 Live backend smoke:
 - `GET /` -> PASS
@@ -127,10 +111,9 @@ Live backend smoke:
 5. Open `/#/products` and edit range once.
 6. Refresh one product and confirm history grows in `/#/detail` or `/#/history`.
 7. Open `/#/alerts`, create an alert, run `Test Telegram`.
-8. Check backend logs for scheduler refresh activity.
+8. Check Worker logs with `wrangler tail` for scheduler refresh activity.
 
 ## Notes
 
 - `/notifications/test` validates Telegram connectivity only. It does not evaluate live trigger decision logic.
-- If you run backend from inside `backend/`, use `main:app` (not `backend.main:app`).
-  - pull requests / milestone commits
+- If you run the Worker locally, use `cd cloudflare-api && npm run dev`.

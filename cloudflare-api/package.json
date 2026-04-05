@@ -1,0 +1,15 @@
+{
+  "name": "price-tracker-cloudflare-api",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create price-tracker-db",
+    "db:migrate": "wrangler d1 execute price-tracker-db --remote --file=./schema.sql -y"
+  },
+  "devDependencies": {
+    "wrangler": "^4.80.0"
+  }
+}

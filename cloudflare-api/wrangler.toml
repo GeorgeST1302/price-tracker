@@ -1,0 +1,23 @@
+name = "price-tracker-api"
+main = "src/index.js"
+compatibility_date = "2026-04-03"
+workers_dev = true
+
+[vars]
+CORS_ORIGINS = "https://price-tracker-app.pages.dev"
+DEFAULT_REFRESH_MINUTES = "360"
+MIN_REFRESH_MINUTES = "15"
+MAX_CRON_REFRESHES_PER_RUN = "12"
+ALLOW_SYNTHETIC = "0"
+TELEGRAM_API_BASE = "https://api.telegram.org"
+# Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID with wrangler secret put.
+# For local wrangler dev against localhost, temporarily override CORS_ORIGINS.
+# Legacy PRICEPULSE_* env names are still accepted by the Worker code.
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "price-tracker-db"
+database_id = "8f5896a0-cbe4-42e5-8a4f-bc4193b84155"

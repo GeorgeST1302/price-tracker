@@ -1,6 +1,10 @@
 .env
 *.env
 *.db
+.wrangler/
+landing/dist/
+landing/.astro/
+cloudflare-api/.dev.vars
 __pycache__/
 *.pyc
 node_modules/
