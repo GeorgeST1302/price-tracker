@@ -97,7 +97,7 @@ npm run deploy
 
 After deploy, note the Worker URL printed by Wrangler, for example:
 
-- `https://price-tracker-api.<your-subdomain>.workers.dev`
+- `https://price-pulse-api.<your-subdomain>.workers.dev`
 
 Set this as `VITE_API_BASE_URL` in your Cloudflare Pages frontend project, then redeploy the frontend. After the Pages site at `https://price-tracker-app.pages.dev` is live, tighten `CORS_ORIGINS` to only that exact origin.
 

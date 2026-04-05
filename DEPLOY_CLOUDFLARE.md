@@ -82,7 +82,7 @@ npm run dev
 
 7. Verified live URLs from this workspace
 
-- Worker API: `https://price-tracker-api.bl-en-u4aid23016.workers.dev`
+- Worker API: `https://price-pulse-api.bl-en-u4aid23016.workers.dev`
 - React dashboard: `https://price-tracker-app.pages.dev/#/`
 - Landing deployment: `https://af11f48e.price-tracker-landing.pages.dev/`
 
