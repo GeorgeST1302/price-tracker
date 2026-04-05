@@ -5,6 +5,7 @@ import PriceChart from "../components/PriceChart"
 import ProductCard from "../components/ProductCard"
 import { apiJson } from "../lib/apiBaseUrl"
 import { formatCurrency } from "../lib/formatters"
+import { readCachedProducts, saveCachedProducts } from "../lib/productCache"
 
 function getPurchaseButtonLabel(recommendation) {
   return String(recommendation || "").toUpperCase() === "BUY NOW" ? "Buy Now" : "Open Listing"
@@ -42,6 +43,7 @@ function ProductDetail() {
         if (cancelled) return
         const safe = Array.isArray(data) ? data : []
         setProducts(safe)
+        saveCachedProducts(safe)
 
         const paramId = searchParams.get("product")
         if (paramId && safe.some((product) => String(product.id) === String(paramId))) {
@@ -49,7 +51,11 @@ function ProductDetail() {
         }
       } catch (err) {
         if (cancelled) return
-        setError(err instanceof Error ? err.message : String(err))
+        const cachedProducts = readCachedProducts()
+        setProducts(cachedProducts)
+        if (!cachedProducts.length) {
+          setError(err instanceof Error ? err.message : String(err))
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }

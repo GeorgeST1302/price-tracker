@@ -4,6 +4,7 @@ import { Link } from "react-router-dom"
 import ProductCard from "../components/ProductCard"
 import { apiJson, apiRequest } from "../lib/apiBaseUrl"
 import { formatPercent } from "../lib/formatters"
+import { readCachedProducts, saveCachedProducts } from "../lib/productCache"
 
 function getPurchaseButtonLabel(recommendation) {
   return String(recommendation || "").toUpperCase() === "BUY NOW" ? "Buy Now" : "Open Listing"
@@ -21,10 +22,15 @@ function Dashboard() {
 
     try {
       const productsData = await apiJson("/products")
-      setProducts(Array.isArray(productsData) ? productsData : [])
+      const nextProducts = Array.isArray(productsData) ? productsData : []
+      setProducts(nextProducts)
+      saveCachedProducts(nextProducts)
     } catch (err) {
-      setProducts([])
-      setError(err instanceof Error ? err.message : String(err))
+      const cachedProducts = readCachedProducts()
+      setProducts(cachedProducts)
+      if (!cachedProducts.length) {
+        setError(err instanceof Error ? err.message : String(err))
+      }
     } finally {
       setLoading(false)
     }

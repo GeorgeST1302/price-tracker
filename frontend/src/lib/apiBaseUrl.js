@@ -93,6 +93,10 @@ function withTimeout(signal, timeoutMs) {
   }
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
 export function buildApiUrl(path) {
   const baseUrl = getApiBaseUrl()
   if (!baseUrl) {
@@ -108,37 +112,55 @@ export function buildApiUrl(path) {
 export async function apiRequest(path, options = {}) {
   const { timeoutMs = DEFAULT_TIMEOUT_MS, signal, headers, ...rest } = options
   const requestUrl = buildApiUrl(path)
-  const timeout = withTimeout(signal, timeoutMs)
   const requestHeaders = new Headers(headers || {})
   const fetchMode = getFetchMode()
+  const method = String(rest.method || "GET").toUpperCase()
+  const retryable = method === "GET" || method === "HEAD"
+  const maxAttempts = retryable ? 2 : 1
 
   if (fetchMode === "zyte-only") {
     requestHeaders.set("X-PricePulse-Fetch-Mode", "zyte-only")
   }
 
-  try {
-    const response = await fetch(requestUrl, {
-      ...rest,
-      headers: requestHeaders,
-      cache: "no-store",
-      signal: timeout.signal,
-    })
+  let lastError = null
 
-    if (!response.ok) {
-      const message = await extractApiErrorMessage(response)
-      throw new Error(message)
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const timeout = withTimeout(signal, timeoutMs)
+
+    try {
+      const response = await fetch(requestUrl, {
+        ...rest,
+        headers: requestHeaders,
+        cache: "no-store",
+        signal: timeout.signal,
+      })
+
+      if (!response.ok) {
+        const message = await extractApiErrorMessage(response)
+        throw new Error(message)
+      }
+
+      return response
+    } catch (error) {
+      const normalizedError =
+        error?.name === "AbortError"
+          ? new Error(API_TIMEOUT_MESSAGE)
+          : error instanceof Error
+            ? error
+            : new Error(String(error))
+
+      lastError = normalizedError
+      if (attempt + 1 < maxAttempts) {
+        await sleep(250)
+        continue
+      }
+      throw normalizedError
+    } finally {
+      timeout.cleanup()
     }
-
-    return response
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new Error(API_TIMEOUT_MESSAGE)
-    }
-
-    throw error instanceof Error ? error : new Error(String(error))
-  } finally {
-    timeout.cleanup()
   }
+
+  throw lastError || new Error("Request failed")
 }
 
 export async function apiJson(path, options = {}) {

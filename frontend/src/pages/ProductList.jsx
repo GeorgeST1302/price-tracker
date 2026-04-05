@@ -3,6 +3,7 @@ import { Link } from "react-router-dom"
 
 import ProductCard from "../components/ProductCard"
 import { apiJson, apiRequest } from "../lib/apiBaseUrl"
+import { readCachedProducts, saveCachedProducts } from "../lib/productCache"
 
 function getPurchaseButtonLabel(recommendation) {
   return String(recommendation || "").toUpperCase() === "BUY NOW" ? "Buy Now" : "Open Listing"
@@ -43,11 +44,16 @@ function ProductList() {
         const path = params.toString() ? `/products?${params.toString()}` : "/products"
         const data = await apiJson(path)
         if (cancelled) return
-        setProducts(Array.isArray(data) ? data : [])
+        const nextProducts = Array.isArray(data) ? data : []
+        setProducts(nextProducts)
+        if (!searchTerm) saveCachedProducts(nextProducts)
       } catch (err) {
         if (cancelled) return
-        setProducts([])
-        setError(err instanceof Error ? err.message : String(err))
+        const cachedProducts = searchTerm ? [] : readCachedProducts()
+        setProducts(cachedProducts)
+        if (!cachedProducts.length) {
+          setError(err instanceof Error ? err.message : String(err))
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
