@@ -13,10 +13,10 @@ function getPurchaseButtonLabel(recommendation) {
 function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [products, setProducts] = useState([])
+  const [products, setProducts] = useState(() => readCachedProducts())
   const [deletingId, setDeletingId] = useState(null)
 
-  const loadDashboard = useCallback(async () => {
+  const loadDashboard = useCallback(async (attempt = 0) => {
     setLoading(true)
     setError(null)
 
@@ -29,6 +29,11 @@ function Dashboard() {
       const cachedProducts = readCachedProducts()
       setProducts(cachedProducts)
       if (!cachedProducts.length) {
+        if (attempt < 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 750))
+          return loadDashboard(attempt + 1)
+        }
+
         setError(err instanceof Error ? err.message : String(err))
       }
     } finally {
