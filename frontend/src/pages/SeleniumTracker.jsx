@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react"
 
-import { trackUrls, getTrackerApiBaseUrl } from "../lib/seleniumTrackerApi"
+import { trackUrls, getTrackerApiBaseUrl, setTrackerApiBaseUrl } from "../lib/seleniumTrackerApi"
 
 function SeleniumTracker() {
   const [urlsText, setUrlsText] = useState("")
   const [headless, setHeadless] = useState(true)
+  const [apiBaseUrl, setApiBaseUrl] = useState(() => getTrackerApiBaseUrl())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [results, setResults] = useState([])
@@ -14,7 +15,13 @@ function SeleniumTracker() {
     [urlsText],
   )
   const trackerApiBaseUrl = getTrackerApiBaseUrl()
-  const needsPublicApi = typeof window !== "undefined" && window.location.hostname !== "localhost" && trackerApiBaseUrl.includes("localhost")
+  const needsPublicApi = typeof window !== "undefined" && window.location.hostname !== "localhost" && !trackerApiBaseUrl
+
+  function handleApiBaseChange(event) {
+    const value = event.target.value
+    setApiBaseUrl(value)
+    setTrackerApiBaseUrl(value)
+  }
 
   async function handleTrack() {
     if (!urls.length) {
@@ -58,10 +65,21 @@ function SeleniumTracker() {
         <div className="notice notice-warn">
           This page is open on a public site, but the tracker API is still set to localhost. Cloudflare Pages cannot reach localhost.
           Set <b>VITE_SELENIUM_TRACKER_API_BASE_URL</b> to a public Python API URL before expecting live results on Cloudflare.
+          See <b>selenium_tracker/DEPLOY.md</b> for the Docker and deployment steps.
         </div>
       ) : null}
 
       <div className="card stack">
+        <label className="stack">
+          <span>Tracker API Base URL</span>
+          <input
+            className="input"
+            value={apiBaseUrl}
+            onChange={handleApiBaseChange}
+            placeholder="https://your-public-selenium-api.example.com"
+          />
+        </label>
+
         <label className="stack">
           <span>Product URLs</span>
           <textarea
@@ -86,6 +104,7 @@ function SeleniumTracker() {
         </div>
 
         {error ? <div className="notice notice-error">{error}</div> : null}
+        {!trackerApiBaseUrl ? <div className="notice notice-warn">Set a public API base URL above before running from Cloudflare Pages.</div> : null}
       </div>
 
       <div className="grid-cards">

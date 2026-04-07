@@ -2,11 +2,24 @@ import os
 from typing import List
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from price_tracker import init_db, track_product_url
 
 app = FastAPI(title="Selenium Price Tracker API", version="1.0.0")
+
+
+cors_origins = os.getenv("SELENIUM_TRACKER_CORS_ORIGINS", "*")
+allowed_origins = [origin.strip() for origin in cors_origins.split(",") if origin.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"] if "*" in allowed_origins else allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class TrackRequest(BaseModel):

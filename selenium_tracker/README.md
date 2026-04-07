@@ -78,7 +78,7 @@ npm run dev
 
 Open the `Selenium Tracker` tab in the app and paste product URLs.
 
-If your API is hosted somewhere else, set `VITE_SELENIUM_TRACKER_API_BASE_URL` in `frontend/.env`.
+If your API is hosted somewhere else, set `VITE_SELENIUM_TRACKER_API_BASE_URL` in `frontend/.env` or paste the API URL directly into the tracker page.
 
 Cloudflare Pages can host the frontend, but it cannot run the Selenium/Brave API itself. The API must live on a separate public Python host.
 
