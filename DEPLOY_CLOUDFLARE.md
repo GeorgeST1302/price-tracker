@@ -57,7 +57,7 @@ After deploy, copy the Worker URL printed by Wrangler, for example `https://pric
 
 4. Tighten CORS after the Pages domain is final
 
-Once the React Pages project is live at `https://price-tracker-app.pages.dev`, set `CORS_ORIGINS` in `cloudflare-api/wrangler.toml` or in the Cloudflare Worker environment to only that exact origin.
+Once the React Pages project is live, set `CORS_ORIGINS` in `cloudflare-api/wrangler.toml` or in the Cloudflare Worker environment to either `*` for preview deployments or only the final exact origin for production hardening.
 
 If you are testing the Worker locally against `wrangler dev`, temporarily include `http://localhost:5173` in a local override.
 

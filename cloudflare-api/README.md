@@ -115,6 +115,6 @@ Current production default:
 CORS_ORIGINS = "https://price-tracker-app.pages.dev"
 ```
 
-If you are testing the Worker locally against `wrangler dev`, temporarily override `CORS_ORIGINS` to include your local frontend origin as well.
+If you are testing the Worker locally against `wrangler dev`, temporarily override `CORS_ORIGINS` to include your local frontend origin as well. For preview Pages deployments, `CORS_ORIGINS="*"` is the simplest way to avoid browser fetch failures.
 
 Defaults are applied in the Worker if these variables are not present.

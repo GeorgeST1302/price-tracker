@@ -4,7 +4,7 @@ compatibility_date = "2026-04-03"
 workers_dev = true
 
 [vars]
-CORS_ORIGINS = "https://price-tracker-app.pages.dev"
+CORS_ORIGINS = "*"
 DEFAULT_REFRESH_MINUTES = "360"
 MIN_REFRESH_MINUTES = "15"
 MAX_CRON_REFRESHES_PER_RUN = "12"
