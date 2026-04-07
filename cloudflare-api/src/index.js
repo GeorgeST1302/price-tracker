@@ -2008,8 +2008,7 @@ async function searchMarketplaceProducts(searchTerm, limit, config, filters = {}
 
   const scrapyBase = String(config?.SCRAPY_API_BASE || "").trim()
   if (!scrapyBase) {
-    console.warn("SCRAPY_API_BASE is not configured; returning no live search results")
-    return []
+    return legacySearchMarketplaceProducts(q, safeLimit, filters)
   }
 
   try {
@@ -2031,8 +2030,49 @@ async function searchMarketplaceProducts(searchTerm, limit, config, filters = {}
     const filtered = applySearchFilters(dedupeSearchRows(normalized), filters)
     return filtered.slice(0, safeLimit)
   } catch {
-    return []
+    return legacySearchMarketplaceProducts(q, safeLimit, filters)
   }
+}
+
+async function legacySearchMarketplaceProducts(q, safeLimit, filters = {}) {
+  const providers = [searchAmazonProducts, searchFlipkartProducts, searchRelianceProducts, searchSnapdealProducts, searchBingShoppingProducts, searchDuckDuckGoProducts]
+  const queryVariants = Array.from(new Set([...buildSearchQueryVariants(q)])).slice(0, 1)
+  const rows = []
+  const seen = new Set()
+  const searchDeadlineMs = Date.now() + 9000
+  const providerTimeoutMs = 6000
+  const providerLimit = Math.max(1, Math.ceil(safeLimit / providers.length))
+
+  for (const variant of queryVariants) {
+    const settled = await Promise.allSettled(
+      providers.map((provider) =>
+        Promise.race([
+          provider(variant, providerLimit),
+          sleep(providerTimeoutMs).then(() => []),
+        ]),
+      ),
+    )
+    for (let index = 0; index < settled.length; index += 1) {
+      if (Date.now() > searchDeadlineMs) break
+      const result = settled[index]
+      if (result.status !== "fulfilled" || !Array.isArray(result.value)) continue
+      for (const row of result.value) {
+        const normalizedRow = normalizeSearchRow(row)
+        if (!normalizedRow) continue
+        const rowKey = `${normalizedRow.source_key}::${normalizedRow.product_url || normalizedRow.external_id || normalizedRow.asin || normalizedRow.title || ""}`
+        if (seen.has(rowKey)) continue
+        seen.add(rowKey)
+        rows.push(normalizedRow)
+      }
+    }
+  }
+
+  const filtered = applySearchFilters(dedupeSearchRows(rows).filter(Boolean), filters)
+  if (!filtered.length) return []
+  const enriched = await enrichSearchRows(filtered, Math.min(safeLimit, 3))
+  const withImages = enriched.filter((row) => Boolean(row.image_url))
+  const preferred = withImages.length ? withImages : enriched
+  return preferred.slice(0, safeLimit)
 }
 
 async function fetchRelianceProduct({ externalId = null, productUrl = null } = {}) {
@@ -2400,7 +2440,7 @@ async function recordPriceSnapshot(db, product, snapshot, timestamp) {
 async function seedInitialPrice(db, env, config, product, { fetchMode = "auto" } = {}) {
   const timestamp = nowIso()
   const seedInput = await fetchLiveSnapshot(product, fetchMode)
-  const snapshot = await fetchScrapySnapshot(config, seedInput)
+  const snapshot = (await fetchScrapySnapshot(config, seedInput)) || (await fetchLegacySnapshot(seedInput))
   if (fetchMode === "zyte-only" && !snapshot) {
     throw new Error("Zyte-only fetch mode is enabled but Zyte integration is not configured.")
   }
@@ -2432,7 +2472,7 @@ async function refreshAndTrigger(db, env, config, product, { fetchMode = "auto" 
 
   const timestamp = nowIso()
   const liveInput = await fetchLiveSnapshot(product, fetchMode)
-  const snapshot = await fetchScrapySnapshot(config, liveInput)
+  const snapshot = (await fetchScrapySnapshot(config, liveInput)) || (await fetchLegacySnapshot(liveInput))
 
   if (fetchMode === "zyte-only" && !snapshot) {
     throw new Error("Zyte-only fetch mode is enabled but Zyte integration is not configured.")
@@ -2485,6 +2525,17 @@ async function refreshAndTrigger(db, env, config, product, { fetchMode = "auto" 
   await deliverPendingTelegramAlerts(db, env, product.id, price, timestamp)
 
   return latestEntry
+}
+
+async function fetchLegacySnapshot(input) {
+  if (!input || typeof input !== "object") return null
+  const sourceKey = normalizeSourceKey(input.sourceKey)
+  if (sourceKey === "reliance_digital") return fetchRelianceProduct({ externalId: input.externalId, productUrl: input.productUrl })
+  if (sourceKey === "snapdeal") return fetchSnapdealProduct({ productUrl: input.productUrl })
+  if (sourceKey === "amazon") return fetchAmazonProduct({ asin: input.asin, productUrl: input.productUrl })
+  if (sourceKey === "flipkart") return fetchFlipkartProduct({ productUrl: input.productUrl })
+  if (sourceKey === "pricerunner") return fetchPriceRunnerProduct({ productUrl: input.productUrl })
+  return fetchGenericProduct({ productUrl: input.productUrl })
 }
 
 async function fetchScrapySnapshot(config, input) {
