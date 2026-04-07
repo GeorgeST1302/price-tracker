@@ -4,6 +4,7 @@ import { Link } from "react-router-dom"
 import ProductCard from "../components/ProductCard"
 import { apiJson, apiRequest } from "../lib/apiBaseUrl"
 import { readCachedProducts, saveCachedProducts } from "../lib/productCache"
+import { hasRealPurchaseUrl } from "../lib/productUrls"
 
 function getPurchaseButtonLabel(recommendation) {
   return String(recommendation || "").toUpperCase() === "BUY NOW" ? "Buy Now" : "Open Listing"
@@ -204,7 +205,7 @@ function ProductList() {
                   <Link className="button button-secondary" to={`/detail?product=${product.id}`}>
                     View Detail
                   </Link>
-                  {product.purchase_url ? (
+                  {hasRealPurchaseUrl(product.purchase_url) ? (
                     <a className="button" href={product.purchase_url} target="_blank" rel="noreferrer">
                       {getPurchaseButtonLabel(product.recommendation)}
                     </a>

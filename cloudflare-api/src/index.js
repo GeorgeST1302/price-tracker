@@ -17,6 +17,8 @@ const SOURCE_LABELS = {
   flipkart: "Flipkart",
   reliance_digital: "Reliance Digital",
   snapdeal: "Snapdeal",
+  pricerunner: "PriceRunner",
+  bing_shopping: "Bing Shopping",
   generic: "Website",
 }
 
@@ -25,6 +27,8 @@ const ALLOWED_DOMAINS = {
   flipkart: ["flipkart.com", "www.flipkart.com"],
   reliance_digital: ["reliancedigital.in", "www.reliancedigital.in"],
   snapdeal: ["snapdeal.com", "www.snapdeal.com"],
+  pricerunner: ["pricerunner.com", "www.pricerunner.com"],
+  bing_shopping: ["bing.com", "www.bing.com"],
 }
 
 function normalizeSourceKey(value) {
@@ -36,6 +40,8 @@ function normalizeSourceKey(value) {
     reliance_digital: "reliance_digital",
     snapdeal: "snapdeal",
     flipkart: "flipkart",
+    pricerunner: "pricerunner",
+    bing_shopping: "bing_shopping",
     generic: "generic",
     url: "generic",
     website: "generic",
@@ -114,6 +120,7 @@ function normalizeProductUrl(sourceKey, value) {
     else if (normalized === "reliance_digital") raw = `https://www.reliancedigital.in${raw}`
     else if (normalized === "snapdeal") raw = `https://www.snapdeal.com${raw}`
     else if (normalized === "flipkart") raw = `https://www.flipkart.com${raw}`
+    else if (normalized === "pricerunner") raw = `https://www.pricerunner.com${raw}`
     else return null
   }
 
@@ -181,7 +188,7 @@ function toProxyUrl(url) {
 }
 
 function extractFirstCurrencyValue(text) {
-  const match = String(text || "").match(/(?:Rs\.?|₹)\s*([0-9][0-9,]*)/i)
+  const match = String(text || "").match(/(?:Rs\.?|₹|£|€|\$)\s*([0-9][0-9,]*(?:\.[0-9]+)?)/i)
   if (!match) return null
   return extractPriceValue(match[1])
 }
@@ -214,6 +221,10 @@ function parseAmazonProxySearchResults(text, limit = 3) {
     const imageMatch = match[0].match(/\]\((https:\/\/m\.media-amazon\.com\/[^)]+)\)/i)
     const imageUrl = normalizeImageUrl(imageMatch ? imageMatch[1] : null)
 
+    if (!title || !Number.isFinite(price)) continue
+    if (imageUrl && /megamenu|nav|icon/i.test(imageUrl)) continue
+    if (/megamenu|nav/i.test(title)) continue
+
     const row = normalizeSearchRow({
       source_key: "amazon",
       source: getSourceLabel("amazon"),
@@ -226,6 +237,669 @@ function parseAmazonProxySearchResults(text, limit = 3) {
       seller: "Amazon Marketplace",
     })
 
+    if (row) rows.push(row)
+  }
+
+  return rows
+}
+
+function extractPriceRunnerExternalId(productUrl) {
+  const match = String(productUrl || "").match(/\/pl\/([^/]+)/i)
+  return match ? match[1] : null
+}
+
+function extractFlipkartExternalId(productUrl) {
+  const match = String(productUrl || "").match(/\/p\/([^/?#]+)/i)
+  return match ? match[1] : null
+}
+
+function parsePriceRunnerSearchResults(text, limit = 3) {
+  const rawText = String(text || "")
+  const rows = []
+  const seen = new Set()
+  const regex = /\[([^\]]+?)\]\((https:\/\/www\.pricerunner\.com\/pl\/[^)]+)\)/gi
+  let match
+
+  while ((match = regex.exec(rawText)) && rows.length < limit) {
+    const anchorText = cleanText(match[1])
+    const productUrl = normalizeProductUrl("pricerunner", match[2])
+    if (!anchorText || !productUrl) continue
+
+    const externalId = extractPriceRunnerExternalId(productUrl)
+    const dedupeKey = externalId || productUrl
+    if (seen.has(dedupeKey)) continue
+    seen.add(dedupeKey)
+
+    const title = cleanText(anchorText.split("Add or remove from lists")[0] || anchorText)
+    const price = extractFirstCurrencyValue(anchorText)
+    if (!title || !Number.isFinite(price) || price <= 0) continue
+
+    const storeMatch = anchorText.match(/\b([0-9]+\+?|Out of stock)\s+stores?\b/i)
+    const seller = storeMatch ? `PriceRunner (${storeMatch[1]})` : "PriceRunner"
+
+    const row = normalizeSearchRow({
+      source_key: "pricerunner",
+      source: getSourceLabel("pricerunner"),
+      title,
+      price,
+      product_url: productUrl,
+      seller,
+      external_id: externalId,
+    })
+    if (row) rows.push(row)
+  }
+
+  return rows
+}
+
+async function searchPriceRunnerProducts(searchTerm, limit = 3) {
+  const q = String(searchTerm || "").trim()
+  if (!q) return []
+  const safeLimit = clamp(1, Number(limit) || 3, 12)
+
+  try {
+    const url = `https://www.pricerunner.com/search?q=${encodeURIComponent(q)}`
+    const response = await requestWithRetries(url, { headers: DESKTOP_BROWSER_HEADERS }, { timeoutMs: 15000, retries: 3 })
+    if (!response.ok) return []
+    const text = await response.text()
+    const parsed = parsePriceRunnerSearchResults(text, safeLimit)
+    if (parsed.length) return parsed
+  } catch {
+    // Fall through to proxy fallback.
+  }
+
+  try {
+    const proxyUrl = toProxyUrl(`https://www.pricerunner.com/search?q=${encodeURIComponent(q)}`)
+    if (!proxyUrl) return []
+    const response = await requestWithRetries(proxyUrl, {
+      headers: { Accept: "text/plain,text/markdown,*/*" },
+    })
+    if (!response.ok) return []
+    const text = await response.text()
+    const parsed = parsePriceRunnerSearchResults(text, safeLimit)
+    console.log("search proxy provider=pricerunner", JSON.stringify({ query: q, rows: parsed.length }))
+    return parsed
+  } catch {
+    return []
+  }
+}
+
+function extractAllowedStoreUrls(text) {
+  const rawText = String(text || "")
+  const seen = new Set()
+  const urls = []
+
+  const uddgRegex = /https?:\/\/duckduckgo\.com\/l\/\?uddg=([^&\s)]+)/gi
+  let match
+  while ((match = uddgRegex.exec(rawText))) {
+    const decoded = decodeURIComponent(match[1] || "")
+    if (!decoded) continue
+    const source = inferSourceFromUrl(decoded)
+    const sourceKey = normalizeSourceKey(source.source_key)
+    if (!["amazon", "flipkart", "reliance_digital", "snapdeal"].includes(sourceKey)) continue
+    const dedupeKey = `${sourceKey}::${decoded}`
+    if (seen.has(dedupeKey)) continue
+    seen.add(dedupeKey)
+    urls.push({ url: decoded, sourceKey })
+  }
+
+  const directRegex = new RegExp("https?:\\/\\/(?:www\\.)?(amazon\\.in|flipkart\\.com|reliancedigital\\.in|snapdeal\\.com)\\/[^\\s<>)\"]+", "gi")
+  while ((match = directRegex.exec(rawText))) {
+    const decoded = match[0]
+    const source = inferSourceFromUrl(decoded)
+    const sourceKey = normalizeSourceKey(source.source_key)
+    if (!["amazon", "flipkart", "reliance_digital", "snapdeal"].includes(sourceKey)) continue
+    const dedupeKey = `${sourceKey}::${decoded}`
+    if (seen.has(dedupeKey)) continue
+    seen.add(dedupeKey)
+    urls.push({ url: decoded, sourceKey })
+  }
+
+  return urls
+}
+
+async function fetchSearchCandidate(url, sourceKey) {
+  const normalizedSourceKey = normalizeSourceKey(sourceKey)
+  if (normalizedSourceKey === "amazon") return fetchAmazonProduct({ productUrl: url })
+  if (normalizedSourceKey === "flipkart") return fetchFlipkartProduct({ productUrl: url })
+  if (normalizedSourceKey === "reliance_digital") return fetchRelianceProduct({ productUrl: url })
+  if (normalizedSourceKey === "snapdeal") return fetchSnapdealProduct({ productUrl: url })
+  return null
+}
+
+async function enrichSearchRows(rows, limit = 3) {
+  const safeRows = Array.isArray(rows) ? rows.filter(Boolean) : []
+  const cappedRows = safeRows.slice(0, Math.max(1, Number(limit) || 3))
+  const settled = await Promise.allSettled(
+    cappedRows.map((row) =>
+      Promise.race([
+        fetchSearchCandidate(row.product_url || row.purchase_url || null, row.source_key),
+        sleep(2500).then(() => null),
+      ]),
+    ),
+  )
+  return cappedRows.map((row, index) => {
+    const fetched = settled[index]?.status === "fulfilled" ? settled[index].value : null
+    if (!fetched) return row
+    return {
+      ...row,
+      rating: fetched.rating ?? row.rating ?? null,
+      availability: fetched.availability ?? row.availability ?? null,
+      feature_summary: fetched.feature_summary ?? row.feature_summary ?? null,
+      image_url: fetched.image_url ?? row.image_url ?? null,
+      brand: fetched.brand ?? row.brand ?? null,
+      title: fetched.title || row.title,
+      price: Number.isFinite(Number(fetched.price)) ? round2(fetched.price) : row.price,
+    }
+  })
+}
+
+function normalizeSearchAvailability(value) {
+  const text = String(value || "").trim().toLowerCase()
+  if (!text) return null
+  if (text.includes("out of stock") || text.includes("currently unavailable") || text.includes("sold out")) return "out_of_stock"
+  if (text.includes("in stock") || text.includes("available") || text.includes("delivery")) return "in_stock"
+  return text
+}
+
+function tokenizeSearchQuery(query) {
+  return Array.from(
+    new Set(
+      String(query || "")
+        .toLowerCase()
+        .split(/[^a-z0-9]+/i)
+        .map((token) => token.trim())
+        .filter((token) => token.length > 1),
+    ),
+  )
+}
+
+function buildSearchQueryVariants(searchTerm) {
+  const normalized = cleanText(searchTerm) || ""
+  if (!normalized) return []
+
+  const tokens = tokenizeSearchQuery(normalized)
+  const stopwords = new Set(["for", "with", "the", "and", "or", "new", "best", "buy", "price"])
+  const compactTokens = tokens.filter((token) => !stopwords.has(token))
+  const lower = normalized.toLowerCase()
+
+  const heuristics = []
+  if (/\bmouse\b/i.test(lower)) {
+    heuristics.push("wireless mouse", "gaming mouse", "computer mouse")
+  }
+  if (/\bphone\b|\bmobile\b|\bsmartphone\b/i.test(lower)) {
+    heuristics.push("phones", "smartphone", "mobile")
+  }
+  if (/\blaptop\b/i.test(lower)) {
+    heuristics.push("laptop", "notebook")
+  }
+  if (/\bearbud(s)?\b|\bearphone(s)?\b/i.test(lower)) {
+    heuristics.push("earbuds", "wireless earbuds", "earphones")
+  }
+  if (/\bheadphone(s)?\b|\bheadset\b/i.test(lower)) {
+    heuristics.push("headphones", "headset")
+  }
+  if (/\bwatch\b/i.test(lower)) {
+    heuristics.push("smart watch", "smartwatch")
+  }
+  if (/\bkeyboard\b/i.test(lower)) {
+    heuristics.push("wireless keyboard", "mechanical keyboard")
+  }
+  if (/\bcharger\b/i.test(lower)) {
+    heuristics.push("fast charger", "wall charger")
+  }
+
+  if (/\bsamsung\b/i.test(lower)) {
+    heuristics.push("samsung phones", "samsung galaxy", "samsung mobile")
+  }
+  if (/\blogitech\b/i.test(lower)) {
+    heuristics.push("logitech wireless mouse", "logitech gaming mouse", "logitech computer mouse")
+  }
+  if (/\bapple\b/i.test(lower) || /\biphone\b/i.test(lower)) {
+    heuristics.push("apple iphone", "iphone", "iphone 15")
+  }
+
+  const variants = [
+    normalized,
+    tokens.join(" "),
+    compactTokens.join(" "),
+    tokens.slice(0, 2).join(" "),
+    tokens.slice(-2).join(" "),
+    tokens[0],
+    tokens.length > 1 ? tokens[1] : null,
+    ...heuristics.map((variant) => `${compactTokens[0] || tokens[0] || normalized} ${variant}`.trim()),
+    ...heuristics,
+  ]
+
+  return Array.from(new Set(variants.map((value) => cleanText(value)).filter(Boolean)))
+}
+
+async function searchBingShoppingSuggestions(searchTerm, limit = 8) {
+  const q = String(searchTerm || "").trim()
+  if (!q) return []
+  const safeLimit = clamp(1, Number(limit) || 8, 20)
+
+  try {
+    const proxyUrl = toProxyUrl(`https://www.bing.com/shop?q=${encodeURIComponent(q)}`)
+    if (!proxyUrl) return []
+    const response = await requestWithRetries(proxyUrl, {
+      headers: { Accept: "text/plain,text/markdown,*/*" },
+    }, { timeoutMs: 5000, retries: 1 })
+    if (!response.ok) return []
+
+    const text = await response.text()
+    const seen = new Set()
+    const suggestions = []
+    const regex = /https?:\/\/www\.bing\.com\/shop\?q=([^&\s)]+)&FORM=SHOPA2/gi
+    let match
+
+    while ((match = regex.exec(text)) && suggestions.length < safeLimit) {
+      const suggestion = cleanText(decodeURIComponent(String(match[1] || "").replace(/\+/g, " ")))
+      if (!suggestion) continue
+      const key = suggestion.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      suggestions.push(suggestion)
+    }
+
+    return suggestions
+  } catch {
+    return []
+  }
+}
+
+function parseBingShoppingHtmlResults(html, limit = 3) {
+  const rawHtml = String(html || "")
+  const rows = []
+  const seen = new Set()
+  const cardRegex = /<li[^>]*class="[^"]*\bbr-item\b[^"]*"[^>]*>[\s\S]*?<\/li>/gi
+  let match
+
+  while ((match = cardRegex.exec(rawHtml)) && rows.length < limit) {
+    const cardHtml = match[0] || ""
+
+    const dataUrl = cardHtml.match(/<li[^>]*\bdata-url="([^"]+)"/i)?.[1] || null
+    const hrefUrl = cardHtml.match(/<a[^>]*href="([^"]+)"/i)?.[1] || null
+    const productPageUrl = cardHtml.match(/<a[^>]*class="[^"]*\bbr-titlelink\b[^"]*"[^>]*href="([^"]+)"/i)?.[1] || null
+
+    const bestRelativeUrl = decodeHtmlEntities(productPageUrl || dataUrl || hrefUrl || "")
+    const bestAbsoluteUrl = bestRelativeUrl.startsWith("http")
+      ? bestRelativeUrl
+      : bestRelativeUrl
+        ? `https://www.bing.com${bestRelativeUrl.startsWith("/") ? "" : "/"}${bestRelativeUrl}`
+        : ""
+
+    const normalizedUrl = normalizeProductUrl("bing_shopping", bestAbsoluteUrl)
+    if (!normalizedUrl) continue
+
+    const imageMatch = cardHtml.match(/<img[^>]+(?:src|data-src)="([^"]+)"[^>]*>/i)
+    const imageUrl = normalizeImageUrl(imageMatch ? decodeHtmlEntities(imageMatch[1]) : null)
+
+    const titleFragment =
+      cardHtml.match(/<div[^>]*class="[^"]*(?:br-title|br-pdItemName|br-offertitle|b_factrow)[^"]*"[^>]*>([\s\S]*?)<\/div>/i)?.[1] ||
+      cardHtml.match(/<span[^>]*class="[^"]*(?:br-title|br-pdItemName|br-offertitle)[^"]*"[^>]*>([\s\S]*?)<\/span>/i)?.[1] ||
+      null
+
+    let title = cleanText(titleFragment ? stripTags(titleFragment) : null)
+    if (!title) {
+      const altMatch = cardHtml.match(/<img[^>]*\balt="([^"]+)"/i)
+      title = cleanText(decodeHtmlEntities(altMatch ? altMatch[1] : null))
+    }
+    if (!title) {
+      title = cleanText(decodeHtmlEntities(cardHtml.match(/<span[^>]*title="([^"]+)"/i)?.[1] || null))
+    }
+    if (!title) {
+      title = cleanText(stripTags(cardHtml))
+    }
+    if (!title) continue
+    if (title.length > 160) continue
+    if (/^(Product details|Product Image|New tab icon|Save to wishlist)$/i.test(title)) continue
+    if (/(?:bing\.com\/ck\/a|JmltdHM|ptn=3|ver=2|hsh=4|fclid=|u=a1L3Nob3Av)/i.test(title)) continue
+
+    const priceText = decodeHtmlEntities(
+      cardHtml.match(/<div[^>]*class="[^\"]*resp-one-line[^\"]*br-max-width[^\"]*"[^>]*>([\s\S]*?)<\/div>/i)?.[1] ||
+      cardHtml.match(/<div[^>]*class="[^\"]*br-price[^\"]*"[^>]*>([\s\S]*?)<\/div>/i)?.[1] ||
+      "",
+    )
+    const price = extractFirstCurrencyValue(priceText) ?? extractFirstCurrencyValue(stripTags(cardHtml))
+    if (!Number.isFinite(price)) continue
+
+    const sellerFragment = cardHtml.match(/<div[^>]*class="[^\"]*br-seller[^\"]*"[^>]*>([\s\S]*?)<\/div>/i)?.[1] || null
+    const sellerText = cleanText(sellerFragment ? stripTags(sellerFragment) : null)
+    const ratingText = cleanText(decodeHtmlEntities(cardHtml.match(/\b([0-9](?:\.[0-9])?)\s*·\s*([0-9][0-9K+]*\+?)\b/i)?.[0] || null))
+    const rating = ratingText ? Number(ratingText.split("·")[0]) : null
+    const featureSummary = sellerText || null
+    const dedupeKey = `${title.toLowerCase()}::${normalizedUrl}::${sellerText?.toLowerCase() || ""}::${price}`
+    if (seen.has(dedupeKey)) continue
+    seen.add(dedupeKey)
+
+    const row = normalizeSearchRow({
+      source_key: "bing_shopping",
+      source: getSourceLabel("bing_shopping"),
+      title,
+      price,
+      image_url: imageUrl,
+      product_url: normalizedUrl,
+      seller: sellerText || "Bing Shopping",
+      rating,
+      feature_summary: featureSummary,
+    })
+
+    if (row) rows.push(row)
+  }
+
+  return rows
+}
+
+function parseBingShoppingSearchResults(text, limit = 3) {
+  const rawText = String(text || "")
+  const rows = []
+  const seen = new Set()
+  const imageRegex = /!\[Image \d+: Product Image\]\((https?:\/\/th\.bing\.com\/th(?:\/|\?)[^)]+)\)/gi
+  let match
+
+  while ((match = imageRegex.exec(rawText)) && rows.length < limit) {
+    const imageUrl = normalizeImageUrl(match[1])
+    const blockWindow = rawText.slice(Math.max(0, match.index - 1200), Math.min(rawText.length, match.index + 4200))
+    const clickMatch = blockWindow.match(/\]\((https:\/\/www\.bing\.com\/aclick\?[^)]+)\)/i)
+    if (clickMatch) {
+      const beforeClick = blockWindow.slice(0, clickMatch.index)
+      const title = extractBingShoppingTitle(beforeClick)
+      const row = buildBingShoppingRow({
+        blockText: beforeClick,
+        imageUrl,
+        productUrl: clickMatch[1],
+        title,
+        seen,
+      })
+      if (row) rows.push(row)
+    }
+  }
+
+  if (rows.length < limit) {
+    const clickRegex = /\]\((https:\/\/www\.bing\.com\/aclick\?[^)]+)\)/gi
+    let clickMatch
+    while ((clickMatch = clickRegex.exec(rawText)) && rows.length < limit) {
+      const blockWindow = rawText.slice(Math.max(0, clickMatch.index - 3600), clickMatch.index)
+      const title = extractBingShoppingTitle(blockWindow)
+      const imageMatch = blockWindow.match(/!\[Image \d+: Product Image\]\((https?:\/\/th\.bing\.com\/th(?:\/|\?)[^)]+)\)/gi)
+      const imageUrl = imageMatch?.length ? normalizeImageUrl(imageMatch[imageMatch.length - 1].match(/\((https?:\/\/th\.bing\.com\/th(?:\/|\?)[^)]+)\)/i)?.[1] || null) : null
+      const row = buildBingShoppingRow({
+        blockText: blockWindow,
+        imageUrl,
+        productUrl: clickMatch[1],
+        title,
+        seen,
+      })
+      if (row) rows.push(row)
+    }
+  }
+
+  return rows
+}
+
+function extractBingShoppingTitle(blockText) {
+  const compact = cleanText(String(blockText || "").replace(/!\[[^\]]*\]\([^)]*\)/g, " ").replace(/\]\([^)]*\)/g, " "))
+  if (!compact) return null
+
+  if (/why you're seeing this ad|advertiser details|see more ads|ad settings|your current search|microsoft advertising|shopping guide/i.test(compact)) {
+    return null
+  }
+
+  const priceMatch = compact.match(/(?:Rs\.?|₹|£|€|\$)\s*[0-9][0-9,]*(?:\.[0-9]+)?/i)
+  const titleSource = priceMatch ? compact.slice(0, priceMatch.index) : compact
+  const segments = titleSource
+    .split(/\s{2,}|(?:\|)|(?:·)/)
+    .map((segment) => cleanText(segment))
+    .filter(Boolean)
+
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const segment = segments[index]
+    if (/^(SALE|Curbside|Product Image|New tab icon|Saved Save to wishlist)$/i.test(segment)) continue
+    if (/^(Show filters|Hide filters|Refine by|Related searches for|Shopping)$/i.test(segment)) continue
+    if (/(?:bing\.com\/ck\/a|JmltdHM|ptn=3|ver=2|hsh=4|fclid=|u=a1L3Nob3Av)/i.test(segment)) continue
+    if (segment.length < 4) continue
+    return segment.replace(/^(SALE|Curbside)\s+/i, "").replace(/\s+/g, " ")
+  }
+
+  return null
+}
+
+function buildBingShoppingRow({ blockText, imageUrl, productUrl, title, seen }) {
+  const compact = cleanText(String(blockText || "").replace(/!\[[^\]]*\]\([^)]*\)/g, " ").replace(/\]\([^)]*\)/g, " "))
+  if (!compact) return null
+  if (/why you're seeing this ad|advertiser details|see more ads|ad settings|your current search|microsoft advertising|shopping guide/i.test(compact)) {
+    return null
+  }
+
+  const price = extractFirstCurrencyValue(compact)
+  if (!title) title = extractBingShoppingTitle(compact)
+  if (!title) return null
+  if (/(?:bing\.com\/ck\/a|JmltdHM|ptn=3|ver=2|hsh=4|fclid=|u=a1L3Nob3Av)/i.test(title)) return null
+  if (title.length > 140) return null
+
+  const afterPrice = (() => {
+    const priceMatch = compact.match(/(?:Rs\.?|₹|£|€|\$)\s*[0-9][0-9,]*(?:\.[0-9]+)?/i)
+    return priceMatch ? compact.slice(priceMatch.index + priceMatch[0].length) : compact
+  })()
+  const ratingMatch = afterPrice.match(/\b([0-9](?:\.[0-9])?)\s*·\s*([0-9][0-9K+]*\+?)\b/)
+  const sellerText = cleanText((afterPrice.slice(0, ratingMatch?.index ?? afterPrice.length) || "").replace(/[•·]/g, " "))
+  const availability = /out of stock|currently unavailable|sold out/i.test(compact)
+    ? "Out of stock"
+    : /\bin stock\b|available/i.test(compact)
+      ? "In stock"
+      : null
+  const seller = sellerText || "Bing Shopping"
+  const row = normalizeSearchRow({
+    source_key: "bing_shopping",
+    source: getSourceLabel("bing_shopping"),
+    title,
+    price,
+    image_url: imageUrl,
+    product_url: normalizeProductUrl("bing_shopping", productUrl),
+    seller,
+    rating: ratingMatch ? Number(ratingMatch[1]) : null,
+    availability,
+    feature_summary: sellerText || null,
+  })
+  if (!row) return null
+
+  const dedupeKey = `${row.title.toLowerCase()}::${row.product_url || ""}::${row.seller.toLowerCase()}::${row.price ?? ""}`
+  if (seen) {
+    if (seen.has(dedupeKey)) return null
+    seen.add(dedupeKey)
+  }
+  return row
+}
+
+async function searchBingShoppingProducts(searchTerm, limit = 3) {
+  const q = String(searchTerm || "").trim()
+  if (!q) return []
+  const safeLimit = clamp(1, Number(limit) || 3, 12)
+
+  try {
+    const response = await requestWithRetries(`https://www.bing.com/shop?q=${encodeURIComponent(q)}`, {
+      headers: DESKTOP_BROWSER_HEADERS,
+    }, { timeoutMs: 12000, retries: 2 })
+    if (!response.ok) return []
+
+    const html = await response.text()
+    let rows = parseBingShoppingHtmlResults(html, safeLimit)
+    if (!rows.length) {
+      const cardTagCount = (html.match(/<li[^>]*class=["'][^"']*\bbr-item\b[^"']*["'][^>]*>/gi) || []).length
+      const cardCloseCount = (html.match(/<\/li>/gi) || []).length
+      const firstCardIndex = html.search(/<li[^>]*class=["'][^"']*\bbr-item\b/gi)
+      const aroundFirstCard = firstCardIndex >= 0
+        ? html.slice(Math.max(0, firstCardIndex - 120), Math.min(html.length, firstCardIndex + 900)).replace(/\s+/g, " ")
+        : null
+      console.log("bing html diag", JSON.stringify({
+        query: q,
+        html_len: html.length,
+        card_tag_count: cardTagCount,
+        li_close_count: cardCloseCount,
+        first_card_index: firstCardIndex,
+        around_first_card: aroundFirstCard,
+      }))
+      const proxyUrl = toProxyUrl(`https://www.bing.com/shop?q=${encodeURIComponent(q)}`)
+      if (proxyUrl) {
+        const proxyResponse = await requestWithRetries(proxyUrl, {
+          headers: { Accept: "text/plain,text/markdown,*/*" },
+        }, { timeoutMs: 12000, retries: 1 })
+        if (proxyResponse.ok) {
+          rows = parseBingShoppingSearchResults(await proxyResponse.text(), safeLimit)
+        }
+      }
+    }
+    console.log("search provider=bing_shopping", JSON.stringify({ query: q, rows: rows.length }))
+    return rows
+  } catch {
+    return []
+  }
+}
+
+function scoreSearchRow(row, query) {
+  const normalizedQuery = String(query || "").trim().toLowerCase()
+  if (!row || !normalizedQuery) return 0
+
+  const title = String(row.title || "").trim().toLowerCase()
+  const featureSummary = String(row.feature_summary || "").trim().toLowerCase()
+  const source = String(row.source || row.source_key || "").trim().toLowerCase()
+  const haystack = `${title} ${featureSummary} ${source}`.trim()
+  const tokens = tokenizeSearchQuery(normalizedQuery)
+
+  let score = 0
+
+  if (title === normalizedQuery) score += 120
+  if (title.includes(normalizedQuery)) score += 80
+  if (haystack.includes(normalizedQuery)) score += 30
+
+  if (tokens.length) {
+    const titleMatches = tokens.filter((token) => title.includes(token)).length
+    const haystackMatches = tokens.filter((token) => haystack.includes(token)).length
+
+    score += titleMatches * 20
+    score += haystackMatches * 6
+
+    if (titleMatches === tokens.length) score += 40
+    if (haystackMatches === tokens.length) score += 10
+
+    const firstToken = tokens[0]
+    if (firstToken && title.startsWith(firstToken)) score += 12
+  }
+
+  return score
+}
+
+function applySearchFilters(rows, filters = {}) {
+  const normalizedSource = normalizeSourceKey(filters?.source || "")
+  const minRating = Number(filters?.min_rating)
+  const availabilityFilter = normalizeSearchAvailability(filters?.availability)
+
+  return (Array.isArray(rows) ? rows : []).filter((row) => {
+    if (!row) return false
+    if (normalizedSource && normalizedSource !== "generic" && normalizedSource !== "" && normalizedSource !== "all") {
+      if (normalizeSourceKey(row.source_key) !== normalizedSource) return false
+    }
+
+    if (Number.isFinite(minRating) && minRating > 0) {
+      const rating = Number(row.rating)
+      if (!Number.isFinite(rating) || rating < minRating) return false
+    }
+
+    if (availabilityFilter) {
+      const rowAvailability = normalizeSearchAvailability(row.availability)
+      if (availabilityFilter === "in_stock") {
+        if (rowAvailability !== "in_stock") return false
+      } else if (availabilityFilter === "out_of_stock") {
+        if (rowAvailability !== "out_of_stock") return false
+      }
+    }
+
+    return true
+  })
+}
+
+async function searchDuckDuckGoProducts(searchTerm, limit = 3) {
+  const q = String(searchTerm || "").trim()
+  if (!q) return []
+  const safeLimit = clamp(1, Number(limit) || 3, 12)
+  const searchQueries = [q, `${q} Amazon`, `${q} Flipkart`, `${q} Reliance Digital`, `${q} Snapdeal`]
+  const deadlineMs = Date.now() + 9000
+
+  try {
+    const texts = []
+    for (const searchQuery of searchQueries) {
+      if (Date.now() > deadlineMs) break
+      const proxyUrl = toProxyUrl(`https://duckduckgo.com/html/?q=${encodeURIComponent(searchQuery)}`)
+      if (!proxyUrl) continue
+      const response = await requestWithRetries(proxyUrl, {
+        headers: { Accept: "text/plain,text/markdown,*/*" },
+      }, { timeoutMs: 3500, retries: 1 })
+      if (!response.ok) continue
+      texts.push(await response.text())
+    }
+
+    const snippetRows = []
+    for (const text of texts) {
+      if (Date.now() > deadlineMs) break
+      for (const row of extractDuckDuckGoResultRows(text)) {
+        snippetRows.push(row)
+        if (snippetRows.length >= safeLimit * 6) break
+      }
+      if (snippetRows.length >= safeLimit * 6) break
+    }
+
+    if (snippetRows.length) {
+      const normalizedSnippetRows = dedupeSearchRows(snippetRows)
+        .map(normalizeSearchRow)
+        .filter(Boolean)
+        .sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity))
+        .slice(0, safeLimit)
+      if (normalizedSnippetRows.length) {
+        console.log("search provider=duckduckgo", JSON.stringify({ query: q, queries: searchQueries.length, rows: normalizedSnippetRows.length, mode: "snippet" }))
+        return normalizedSnippetRows
+      }
+    }
+    return []
+  } catch {
+    return []
+  }
+}
+
+function extractDuckDuckGoResultRows(text) {
+  const rawText = String(text || "")
+  const resultRegex = /## \[([^\]]+)\]\((http:\/\/duckduckgo\.com\/l\/\?uddg=[^)]+)\)/gi
+  const matches = []
+  let match
+
+  while ((match = resultRegex.exec(rawText))) {
+    matches.push({ title: cleanText(stripTags(match[1])), wrapperUrl: match[2], index: match.index })
+  }
+
+  const rows = []
+  for (let index = 0; index < matches.length; index += 1) {
+    const current = matches[index]
+    const next = matches[index + 1]
+    const block = rawText.slice(current.index, next ? next.index : rawText.length)
+    const uddgMatch = current.wrapperUrl.match(/[?&]uddg=([^&]+)/i)
+    if (!uddgMatch) continue
+
+    const decodedUrl = decodeURIComponent(uddgMatch[1] || "")
+    const source = inferSourceFromUrl(decodedUrl)
+    const sourceKey = normalizeSourceKey(source.source_key)
+    if (!["amazon", "flipkart", "reliance_digital", "snapdeal"].includes(sourceKey)) continue
+
+    const row = normalizeSearchRow({
+      source_key: sourceKey,
+      source: getSourceLabel(sourceKey),
+      title: current.title || source.source,
+      price: extractFirstCurrencyValue(block),
+      product_url: decodedUrl,
+      seller: getSourceLabel(sourceKey),
+      external_id: null,
+      asin: null,
+      brand: null,
+    })
     if (row) rows.push(row)
   }
 
@@ -359,6 +1033,63 @@ function extractPriceFromJsonLd(payloads) {
         if (Number.isFinite(nextPrice) && nextPrice > 0) return nextPrice
       }
     }
+  }
+  return null
+}
+
+function extractRatingFromJsonLd(payloads) {
+  const nodes = payloads.flatMap(flattenJsonLd)
+  for (const node of nodes) {
+    if (!node || typeof node !== "object") continue
+    const nodeType = node["@type"]
+    const types = typeof nodeType === "string" ? [nodeType] : Array.isArray(nodeType) ? nodeType : []
+    if (!types.some((t) => String(t).toLowerCase() === "product")) continue
+
+    const rating = extractPriceValue(node?.aggregateRating?.ratingValue ?? node?.reviewRating?.ratingValue ?? node?.ratingValue)
+    if (Number.isFinite(rating) && rating > 0) return round2(rating)
+  }
+  return null
+}
+
+function extractAvailabilityFromJsonLd(payloads) {
+  const nodes = payloads.flatMap(flattenJsonLd)
+  for (const node of nodes) {
+    if (!node || typeof node !== "object") continue
+    const nodeType = node["@type"]
+    const types = typeof nodeType === "string" ? [nodeType] : Array.isArray(nodeType) ? nodeType : []
+    if (!types.some((t) => String(t).toLowerCase() === "product")) continue
+
+    const offers = node.offers
+    const offerList = Array.isArray(offers) ? offers : offers ? [offers] : []
+    for (const offer of offerList) {
+      if (!offer || typeof offer !== "object") continue
+      const availability = String(offer.availability || offer.itemCondition || "").trim()
+      if (availability) return availability.replace(/^.*\//, "").replace(/_/g, " ")
+    }
+  }
+  return null
+}
+
+function extractFeatureSummary(html) {
+  return (
+    cleanText(extractMetaContent(html, "name", "description")) ||
+    cleanText(extractMetaContent(html, "property", "og:description")) ||
+    null
+  )
+}
+
+function extractAvailabilityFromHtml(html) {
+  const text = String(html || "")
+  const patterns = [
+    /\bIn Stock\b/i,
+    /\bOnly \d+ left in stock\b/i,
+    /\bAvailable\b/i,
+    /\bOut of stock\b/i,
+    /\bCurrently unavailable\b/i,
+  ]
+  for (const pattern of patterns) {
+    const match = text.match(pattern)
+    if (match) return cleanText(match[0])
   }
   return null
 }
@@ -650,11 +1381,14 @@ function getConfig(env) {
       toNumber(readEnvValue(env, ["MAX_CRON_REFRESHES_PER_RUN", "PRICEPULSE_MAX_CRON_REFRESHES_PER_RUN"], 12), 12),
       100,
     ),
-    ALLOW_SYNTHETIC: toBool(readEnvValue(env, ["ALLOW_SYNTHETIC", "PRICEPULSE_ALLOW_SYNTHETIC"], true), true),
+    ALLOW_SYNTHETIC: toBool(readEnvValue(env, ["ALLOW_SYNTHETIC", "PRICEPULSE_ALLOW_SYNTHETIC"], false), false),
     NOTIFICATIONS_CONFIGURED: toBool(env.NOTIFICATIONS_CONFIGURED, false),
     CORS_ORIGINS: corsOrigins.length ? corsOrigins : ["*"],
     CORS_ALLOW_ALL: allowAllCors,
     TELEGRAM_API_BASE: String(readEnvValue(env, ["TELEGRAM_API_BASE", "PRICEPULSE_TELEGRAM_API_BASE"], "https://api.telegram.org") || "https://api.telegram.org")
+      .trim()
+      .replace(/\/$/, ""),
+    SCRAPY_API_BASE: String(readEnvValue(env, ["SCRAPY_API_BASE", "PRICEPULSE_SCRAPY_API_BASE"], "") || "")
       .trim()
       .replace(/\/$/, ""),
   }
@@ -776,9 +1510,24 @@ function inferSourceFromUrl(rawUrl) {
   return { source_key: "generic", source: getSourceLabel("generic") }
 }
 
+function isPlaceholderProductUrl(value) {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (!normalized) return false
+  try {
+    const parsed = new URL(normalized)
+    return parsed.hostname === "example.com"
+  } catch {
+    return normalized.includes("example.com/")
+  }
+}
+
+function isPlaceholderAsin(value) {
+  return /^CF\d{8}$/i.test(String(value || "").trim())
+}
+
 function buildPurchaseUrl(product) {
-  if (product?.product_url) return product.product_url
-  if (product?.asin) return `https://www.amazon.in/dp/${product.asin}`
+  if (product?.product_url && !isPlaceholderProductUrl(product.product_url)) return product.product_url
+  if (product?.asin && !isPlaceholderAsin(product.asin)) return `https://www.amazon.in/dp/${product.asin}`
   return null
 }
 
@@ -881,6 +1630,7 @@ async function attachInsights(db, product) {
 
   return {
     ...product,
+    product_url: isPlaceholderProductUrl(product.product_url) ? null : product.product_url,
     latest_price: latestPrice != null ? round2(latestPrice) : null,
     average_7d: average7d != null ? round2(average7d) : null,
     average_30d: average30d != null ? round2(average30d) : null,
@@ -901,31 +1651,8 @@ async function attachInsights(db, product) {
 function syntheticSearchResults(query, limit) {
   const q = String(query || "").trim()
   const safeLimit = clamp(1, Number(limit) || 9, 15)
-  const marketplaces = [
-    { source: getSourceLabel("amazon"), source_key: "amazon" },
-    { source: getSourceLabel("flipkart"), source_key: "flipkart" },
-    { source: getSourceLabel("reliance_digital"), source_key: "reliance_digital" },
-    { source: getSourceLabel("snapdeal"), source_key: "snapdeal" },
-  ]
-  const base = 1200 + Math.abs(Array.from(q).reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 2500)
-  const rows = []
-  for (let i = 0; i < safeLimit; i += 1) {
-    const m = marketplaces[i % marketplaces.length]
-    const price = round2(base * (0.9 + ((i % 5) + 1) * 0.03))
-    rows.push({
-      title: `${q} - ${m.source} option ${i + 1}`,
-      price,
-      source: m.source,
-      source_key: m.source_key,
-      seller: m.source,
-      asin: m.source_key === "amazon" ? `CF${String(100000000 + i).slice(0, 8)}` : null,
-      external_id: `${m.source_key}-${q.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${i + 1}`,
-      product_url: `https://example.com/${m.source_key}/${encodeURIComponent(q)}-${i + 1}`,
-      image_url: null,
-      brand: null,
-    })
-  }
-  return rows
+  if (!q || safeLimit <= 0) return []
+  return []
 }
 
 function dedupeSearchRows(rows) {
@@ -945,9 +1672,10 @@ function normalizeSearchRow(row) {
 
   const sourceKey = normalizeSourceKey(row.source_key)
   const title = cleanText(row.title)
-  const price = toNumber(row.price, null)
+  const price = row.price == null ? null : toNumber(row.price, null)
   const productUrl = normalizeProductUrl(sourceKey, row.product_url)
-  if (!title || !Number.isFinite(price) || price <= 0 || !productUrl) return null
+  if (!title || !productUrl) return null
+  if (price != null && (!Number.isFinite(price) || price <= 0)) return null
   if (!isAllowedStoreUrl(sourceKey, productUrl)) return null
 
   return {
@@ -955,13 +1683,16 @@ function normalizeSearchRow(row) {
     source_key: sourceKey,
     source: row.source || getSourceLabel(sourceKey),
     title,
-    price: round2(price),
+    price: price == null ? null : round2(price),
     product_url: productUrl,
     image_url: normalizeImageUrl(row.image_url),
     seller: cleanText(row.seller) || row.source || getSourceLabel(sourceKey),
     external_id: row.external_id != null ? String(row.external_id) : null,
     asin: row.asin != null ? String(row.asin) : null,
     brand: cleanText(row.brand),
+    rating: Number.isFinite(Number(row.rating)) ? round2(Number(row.rating)) : null,
+    availability: cleanText(row.availability),
+    feature_summary: cleanText(row.feature_summary),
   }
 }
 
@@ -1187,29 +1918,121 @@ async function searchAmazonProducts(searchTerm, limit = 3) {
   }
 }
 
-async function searchMarketplaceProducts(searchTerm, limit, config) {
+function extractFlipkartSearchTitle(segment) {
+  const titleCandidates = [
+    segment.match(/aria-label="([^"]+)"/i)?.[1],
+    segment.match(/title="([^"]+)"/i)?.[1],
+    segment.match(/alt="([^"]+)"/i)?.[1],
+  ]
+
+  for (const candidate of titleCandidates) {
+    const title = cleanText(stripTags(candidate))
+    if (title) return title
+  }
+
+  return null
+}
+
+async function searchFlipkartProducts(searchTerm, limit = 3) {
+  const q = String(searchTerm || "").trim()
+  if (!q) return []
+  const safeLimit = clamp(1, Number(limit) || 3, 12)
+
+  try {
+    const url = `https://www.flipkart.com/search?q=${encodeURIComponent(q)}`
+    const response = await requestWithRetries(url, { headers: DESKTOP_BROWSER_HEADERS }, { timeoutMs: 15000, retries: 3 })
+    if (!response.ok) return []
+
+    const html = await response.text()
+    const candidates = []
+    const seen = new Set()
+    const linkRegex = /href="([^"]*\/p\/[^"]+)"/gi
+    let match
+
+    while ((match = linkRegex.exec(html)) && candidates.length < safeLimit * 8) {
+      const productUrl = normalizeProductUrl("flipkart", match[1])
+      if (!productUrl || seen.has(productUrl)) continue
+      seen.add(productUrl)
+
+      const windowStart = Math.max(0, match.index - 1800)
+      const windowEnd = Math.min(html.length, match.index + 4200)
+      const snippet = html.slice(windowStart, windowEnd)
+      const title = extractFlipkartSearchTitle(snippet)
+      const price = extractFirstCurrencyValue(snippet)
+      const imageMatch = snippet.match(/<img[^>]*(?:src|data-src)="([^"]+)"/i)
+      const row = normalizeSearchRow({
+        source_key: "flipkart",
+        source: getSourceLabel("flipkart"),
+        title,
+        price,
+        image_url: imageMatch ? imageMatch[1] : null,
+        product_url: productUrl,
+        seller: "Flipkart Marketplace",
+      })
+
+      if (row) candidates.push(row)
+    }
+
+    if (!candidates.length) return []
+
+    const rankedCandidates = [...candidates]
+      .sort((a, b) => scoreSearchRow(b, q) - scoreSearchRow(a, q) || (Number(a.price) || Infinity) - (Number(b.price) || Infinity))
+      .slice(0, safeLimit * 2)
+
+    const settled = await Promise.allSettled(
+      rankedCandidates.map(async (candidate) => {
+        const fetched = await fetchFlipkartProduct({ productUrl: candidate.product_url })
+        return fetched || candidate
+      }),
+    )
+
+    const rows = []
+    for (const result of settled) {
+      if (result.status !== "fulfilled" || !result.value) continue
+      const row = normalizeSearchRow(result.value)
+      if (row) rows.push(row)
+      if (rows.length >= safeLimit) break
+    }
+
+    console.log("search provider=flipkart", JSON.stringify({ query: q, candidates: candidates.length, rows: rows.length }))
+    return rows
+  } catch {
+    return []
+  }
+}
+
+async function searchMarketplaceProducts(searchTerm, limit, config, filters = {}) {
   const safeLimit = clamp(1, toNumber(limit, 9) || 9, 15)
   const q = String(searchTerm || "").trim()
   if (q.length < 2) return []
 
-  const providers = [searchAmazonProducts, searchRelianceProducts, searchSnapdealProducts]
-  const perSource = Math.max(1, Math.ceil(safeLimit / providers.length))
-
-  const settled = await Promise.allSettled(providers.map((provider) => provider(q, perSource)))
-  const rows = []
-  for (const result of settled) {
-    if (result.status !== "fulfilled") continue
-    if (Array.isArray(result.value)) rows.push(...result.value)
+  const scrapyBase = String(config?.SCRAPY_API_BASE || "").trim()
+  if (!scrapyBase) {
+    console.warn("SCRAPY_API_BASE is not configured; returning no live search results")
+    return []
   }
 
-  const ranked = dedupeSearchRows(rows)
-    .map(normalizeSearchRow)
-    .filter(Boolean)
-    .sort((a, b) => (a.price || Infinity) - (b.price || Infinity))
-    .slice(0, safeLimit)
+  try {
+    const apiUrl = new URL(`${scrapyBase}/scrape/search`)
+    apiUrl.searchParams.set("q", q)
+    apiUrl.searchParams.set("limit", String(safeLimit))
+    if (filters?.source) apiUrl.searchParams.set("source", String(filters.source))
+    if (filters?.min_rating) apiUrl.searchParams.set("min_rating", String(filters.min_rating))
+    if (filters?.availability) apiUrl.searchParams.set("availability", String(filters.availability))
 
-  if (ranked.length) return ranked
-  return syntheticSearchResults(q, safeLimit)
+    const response = await requestWithRetries(apiUrl.toString(), {
+      headers: { Accept: "application/json,text/plain,*/*" },
+    }, { timeoutMs: 12000, retries: 2 })
+    if (!response.ok) return []
+
+    const payload = await response.json().catch(() => null)
+    const rawRows = Array.isArray(payload?.results) ? payload.results : Array.isArray(payload) ? payload : []
+    const normalized = rawRows.map(normalizeSearchRow).filter(Boolean)
+    const filtered = applySearchFilters(dedupeSearchRows(normalized), filters)
+    return filtered.slice(0, safeLimit)
+  } catch {
+    return []
+  }
 }
 
 async function fetchRelianceProduct({ externalId = null, productUrl = null } = {}) {
@@ -1331,6 +2154,9 @@ async function fetchAmazonProduct({ asin = null, productUrl = null } = {}) {
     const price = extractFirstPriceFromHtml(html)
     const imageUrl = normalizeImageUrl(extractMetaContent(html, "property", "og:image"))
     const brand = extractBrandFromJsonLd(payloads)
+    const rating = extractRatingFromJsonLd(payloads)
+    const availability = extractAvailabilityFromJsonLd(payloads) || extractAvailabilityFromHtml(html)
+    const featureSummary = extractFeatureSummary(html)
 
     if (title && Number.isFinite(price)) {
       return {
@@ -1339,6 +2165,9 @@ async function fetchAmazonProduct({ asin = null, productUrl = null } = {}) {
         price: round2(price),
         image_url: imageUrl,
         brand,
+        rating,
+        availability,
+        feature_summary: featureSummary,
         source_key: "amazon",
         source: getSourceLabel("amazon"),
         purchase_url: url,
@@ -1360,6 +2189,40 @@ async function fetchAmazonProduct({ asin = null, productUrl = null } = {}) {
     const text = await response.text()
     return parseAmazonProxyProduct(text, resolvedAsin, `https://www.amazon.in/dp/${resolvedAsin}`)
   } catch {
+    // Fall through to search fallback.
+  }
+
+  try {
+    const fallbackQuery = (() => {
+      try {
+        const parsed = new URL(productUrl || `https://www.amazon.in/dp/${resolvedAsin}`)
+        return String(parsed.searchParams.get("keywords") || "").trim() || String(parsed.pathname.split("/").filter(Boolean).slice(0, 2).join(" ")).trim() || resolvedAsin
+      } catch {
+        return resolvedAsin
+      }
+    })()
+
+    const searchRows = await searchAmazonProducts(fallbackQuery, 5)
+    const exactMatch = searchRows.find((row) => String(row.asin || row.external_id || "").toUpperCase() === resolvedAsin.toUpperCase())
+    const candidate = exactMatch || searchRows[0] || null
+    if (!candidate || !Number.isFinite(Number(candidate.price))) return null
+
+    return {
+      asin: resolvedAsin,
+      title: candidate.title,
+      price: round2(candidate.price),
+      image_url: candidate.image_url || null,
+      brand: candidate.brand || null,
+      rating: candidate.rating || null,
+      availability: candidate.availability || null,
+      feature_summary: candidate.feature_summary || null,
+      source_key: "amazon",
+      source: getSourceLabel("amazon"),
+      purchase_url: `https://www.amazon.in/dp/${resolvedAsin}`,
+      external_id: resolvedAsin,
+      fetch_method: "amazon_search_fallback",
+    }
+  } catch {
     return null
   }
 }
@@ -1379,6 +2242,9 @@ async function fetchGenericProduct({ productUrl = null } = {}) {
       cleanText(stripTags(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || null))
     const brand = extractBrandFromJsonLd(payloads)
     const jsonLdPrice = extractPriceFromJsonLd(payloads)
+    const rating = extractRatingFromJsonLd(payloads)
+    const availability = extractAvailabilityFromJsonLd(payloads) || extractAvailabilityFromHtml(html)
+    const featureSummary = extractFeatureSummary(html)
     const metaPrice =
       extractPriceValue(extractMetaContent(html, "property", "product:price:amount")) ||
       extractPriceValue(extractMetaContent(html, "property", "og:price:amount")) ||
@@ -1392,11 +2258,100 @@ async function fetchGenericProduct({ productUrl = null } = {}) {
       price: round2(price),
       image_url: imageUrl,
       brand,
+      rating,
+      availability,
+      feature_summary: featureSummary,
       source_key: "generic",
       source: getSourceLabel("generic"),
       purchase_url: normalizedUrl,
       external_id: null,
       fetch_method: "generic",
+    }
+  } catch {
+    return null
+  }
+}
+
+async function fetchFlipkartProduct({ productUrl = null } = {}) {
+  const normalizedUrl = normalizeProductUrl("flipkart", productUrl)
+  if (!normalizedUrl) return null
+
+  try {
+    const response = await requestWithRetries(normalizedUrl, { headers: DESKTOP_BROWSER_HEADERS }, { timeoutMs: 15000, retries: 2 })
+    if (!response.ok) return null
+    const html = await response.text()
+    const title =
+      extractMetaContent(html, "property", "og:title") ||
+      extractMetaContent(html, "name", "title") ||
+      cleanText(stripTags(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || null))
+    const price =
+      extractPriceValue(extractMetaContent(html, "property", "product:price:amount")) ||
+      extractPriceValue(extractMetaContent(html, "property", "og:price:amount")) ||
+      extractFirstCurrencyValue(html)
+    const imageUrl = normalizeImageUrl(extractMetaContent(html, "property", "og:image"))
+    const brand = cleanText(extractMetaContent(html, "property", "product:brand") || extractMetaContent(html, "name", "brand"))
+    const payloads = extractJsonLdPayloads(html)
+    const rating = extractRatingFromJsonLd(payloads)
+    const availability = extractAvailabilityFromJsonLd(payloads) || extractAvailabilityFromHtml(html)
+    const featureSummary = extractFeatureSummary(html)
+
+    if (!title || !Number.isFinite(price)) return null
+    return {
+      title,
+      price: round2(price),
+      image_url: imageUrl,
+      brand,
+      rating,
+      availability,
+      feature_summary: featureSummary,
+      source_key: "flipkart",
+      source: getSourceLabel("flipkart"),
+      purchase_url: normalizedUrl,
+      external_id: extractFlipkartExternalId(normalizedUrl),
+      fetch_method: "flipkart_scraper",
+    }
+  } catch {
+    return null
+  }
+}
+
+async function fetchPriceRunnerProduct({ productUrl = null } = {}) {
+  const normalizedUrl = normalizeProductUrl("pricerunner", productUrl)
+  if (!normalizedUrl) return null
+
+  try {
+    const response = await requestWithRetries(normalizedUrl, { headers: DESKTOP_BROWSER_HEADERS }, { timeoutMs: 15000, retries: 2 })
+    if (!response.ok) return null
+    const html = await response.text()
+    const title =
+      extractMetaContent(html, "property", "og:title") ||
+      extractMetaContent(html, "name", "title") ||
+      cleanText(stripTags(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || null))
+    const price =
+      extractPriceValue(extractMetaContent(html, "property", "product:price:amount")) ||
+      extractPriceValue(extractMetaContent(html, "property", "og:price:amount")) ||
+      extractFirstCurrencyValue(html)
+    const imageUrl = normalizeImageUrl(extractMetaContent(html, "property", "og:image"))
+    const brand = cleanText(extractMetaContent(html, "property", "product:brand") || extractMetaContent(html, "name", "brand"))
+    const payloads = extractJsonLdPayloads(html)
+    const rating = extractRatingFromJsonLd(payloads)
+    const availability = extractAvailabilityFromJsonLd(payloads) || extractAvailabilityFromHtml(html)
+    const featureSummary = extractFeatureSummary(html)
+
+    if (!title || !Number.isFinite(price)) return null
+    return {
+      title,
+      price: round2(price),
+      image_url: imageUrl,
+      brand,
+      rating,
+      availability,
+      feature_summary: featureSummary,
+      source_key: "pricerunner",
+      source: getSourceLabel("pricerunner"),
+      purchase_url: normalizedUrl,
+      external_id: extractPriceRunnerExternalId(normalizedUrl),
+      fetch_method: "pricerunner_scraper",
     }
   } catch {
     return null
@@ -1417,23 +2372,15 @@ async function fetchLiveSnapshot(product, fetchMode = "auto") {
   const externalId = product?.external_id || null
 
   if (fetchMode === "zyte-only") {
-    // Zyte integration is optional and wired later; treat this as a strict mode.
     return null
   }
 
-  if (sourceKey === "reliance_digital") {
-    return fetchRelianceProduct({ externalId, productUrl })
+  return {
+    sourceKey,
+    productUrl,
+    asin,
+    externalId,
   }
-
-  if (sourceKey === "snapdeal") {
-    return fetchSnapdealProduct({ productUrl })
-  }
-
-  if (sourceKey === "amazon") {
-    return fetchAmazonProduct({ asin, productUrl })
-  }
-
-  return fetchGenericProduct({ productUrl })
 }
 
 async function recordPriceSnapshot(db, product, snapshot, timestamp) {
@@ -1452,7 +2399,8 @@ async function recordPriceSnapshot(db, product, snapshot, timestamp) {
 
 async function seedInitialPrice(db, env, config, product, { fetchMode = "auto" } = {}) {
   const timestamp = nowIso()
-  const snapshot = await fetchLiveSnapshot(product, fetchMode)
+  const seedInput = await fetchLiveSnapshot(product, fetchMode)
+  const snapshot = await fetchScrapySnapshot(config, seedInput)
   if (fetchMode === "zyte-only" && !snapshot) {
     throw new Error("Zyte-only fetch mode is enabled but Zyte integration is not configured.")
   }
@@ -1483,7 +2431,8 @@ async function refreshAndTrigger(db, env, config, product, { fetchMode = "auto" 
     .first()
 
   const timestamp = nowIso()
-  const snapshot = await fetchLiveSnapshot(product, fetchMode)
+  const liveInput = await fetchLiveSnapshot(product, fetchMode)
+  const snapshot = await fetchScrapySnapshot(config, liveInput)
 
   if (fetchMode === "zyte-only" && !snapshot) {
     throw new Error("Zyte-only fetch mode is enabled but Zyte integration is not configured.")
@@ -1536,6 +2485,43 @@ async function refreshAndTrigger(db, env, config, product, { fetchMode = "auto" 
   await deliverPendingTelegramAlerts(db, env, product.id, price, timestamp)
 
   return latestEntry
+}
+
+async function fetchScrapySnapshot(config, input) {
+  const scrapyBase = String(config?.SCRAPY_API_BASE || "").trim()
+  if (!scrapyBase || !input || typeof input !== "object") return null
+
+  try {
+    const response = await requestWithRetries(
+      `${scrapyBase}/scrape/snapshot`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", Accept: "application/json,text/plain,*/*" },
+        body: JSON.stringify({
+          source_key: input.sourceKey,
+          product_url: input.productUrl,
+          asin: input.asin,
+          external_id: input.externalId,
+        }),
+      },
+      { timeoutMs: 12000, retries: 2 },
+    )
+    if (!response.ok) return null
+
+    const payload = await response.json().catch(() => null)
+    const snapshot = payload?.snapshot || payload
+    const price = toNumber(snapshot?.price, null)
+    if (!Number.isFinite(price) || price <= 0) return null
+
+    return {
+      price: round2(price),
+      fetch_method: cleanText(snapshot?.fetch_method) || "scrapy_api",
+      image_url: normalizeImageUrl(snapshot?.image_url),
+      brand: cleanText(snapshot?.brand),
+    }
+  } catch {
+    return null
+  }
 }
 
 async function routeRequest(request, env) {
@@ -1593,8 +2579,13 @@ async function routeRequest(request, env) {
   if (path === "/products/search" && method === "GET") {
     const q = String(url.searchParams.get("q") || "").trim()
     const limit = url.searchParams.get("limit")
+    const filters = {
+      source: url.searchParams.get("source"),
+      min_rating: url.searchParams.get("min_rating"),
+      availability: url.searchParams.get("availability"),
+    }
     if (q.length < 2) return json([])
-    const results = await searchMarketplaceProducts(q, limit, config)
+    const results = await searchMarketplaceProducts(q, limit, config, filters)
     return json(results)
   }
 
@@ -1921,6 +2912,54 @@ async function routeRequest(request, env) {
 
     const alert = await db.prepare("SELECT * FROM alerts WHERE id = ?1").bind(alertId).first()
     return json(alert, existingPending ? 200 : 201)
+  }
+
+  const alertIdMatch = path.match(/^\/alerts\/(\d+)$/)
+  if (alertIdMatch && method === "PATCH") {
+    const alertId = Number(alertIdMatch[1])
+    const body = await parseJson(request)
+    const targetMin = toNumber(body?.target_price_min, null)
+    const targetMax = toNumber(body?.target_price_max, null)
+
+    if (!Number.isFinite(targetMin) || !Number.isFinite(targetMax) || targetMin <= 0 || targetMax <= 0) {
+      return json({ detail: "Target prices must be positive numbers" }, 400)
+    }
+    if (targetMin > targetMax) return json({ detail: "target_price_min must be <= target_price_max" }, 400)
+
+    const existing = await db.prepare("SELECT * FROM alerts WHERE id = ?1").bind(alertId).first()
+    if (!existing) return json({ detail: "Alert not found" }, 404)
+
+    await db
+      .prepare(
+        `UPDATE alerts
+         SET target_price = ?1, target_price_min = ?2, target_price_max = ?3,
+             telegram_enabled = ?4, browser_enabled = ?5, alarm_enabled = ?6, email_enabled = ?7,
+             notification_error = NULL
+         WHERE id = ?8`,
+      )
+      .bind(
+        targetMax,
+        targetMin,
+        targetMax,
+        toBoolInt(body?.telegram_enabled, existing.telegram_enabled),
+        toBoolInt(body?.browser_enabled, existing.browser_enabled),
+        toBoolInt(body?.alarm_enabled, existing.alarm_enabled),
+        toBoolInt(body?.email_enabled, existing.email_enabled),
+        alertId,
+      )
+      .run()
+
+    const updated = await db.prepare("SELECT * FROM alerts WHERE id = ?1").bind(alertId).first()
+    return json(updated)
+  }
+
+  if (alertIdMatch && method === "DELETE") {
+    const alertId = Number(alertIdMatch[1])
+    const existing = await db.prepare("SELECT id FROM alerts WHERE id = ?1").bind(alertId).first()
+    if (!existing) return json({ detail: "Alert not found" }, 404)
+
+    await db.prepare("DELETE FROM alerts WHERE id = ?1").bind(alertId).run()
+    return json({ deleted: true, alert_id: alertId })
   }
 
   return json({ detail: "Not Found" }, 404)

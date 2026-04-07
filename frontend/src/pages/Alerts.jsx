@@ -27,6 +27,8 @@ function Alerts() {
   const [alerts, setAlerts] = useState([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [savingAlertId, setSavingAlertId] = useState(null)
+  const [deletingAlertId, setDeletingAlertId] = useState(null)
   const [testing, setTesting] = useState(false)
   const [error, setError] = useState(null)
   const [createdMsg, setCreatedMsg] = useState(null)
@@ -34,6 +36,13 @@ function Alerts() {
   const [notificationStatus, setNotificationStatus] = useState(null)
 
   const [productId, setProductId] = useState("")
+  const [editingAlertId, setEditingAlertId] = useState("")
+  const [editMin, setEditMin] = useState("")
+  const [editMax, setEditMax] = useState("")
+  const [editTelegramEnabled, setEditTelegramEnabled] = useState(true)
+  const [editBrowserEnabled, setEditBrowserEnabled] = useState(false)
+  const [editAlarmEnabled, setEditAlarmEnabled] = useState(false)
+  const [editEmailEnabled, setEditEmailEnabled] = useState(false)
 
   async function loadAll() {
     setLoading(true)
@@ -148,6 +157,82 @@ function Alerts() {
     }
   }
 
+  function beginEdit(alert) {
+    setError(null)
+    setCreatedMsg(null)
+    setTestMsg(null)
+    setEditingAlertId(String(alert.id))
+    setEditMin(String(alert.target_price_min ?? alert.target_price ?? ""))
+    setEditMax(String(alert.target_price_max ?? alert.target_price ?? ""))
+    setEditTelegramEnabled(Boolean(alert.telegram_enabled))
+    setEditBrowserEnabled(Boolean(alert.browser_enabled))
+    setEditAlarmEnabled(Boolean(alert.alarm_enabled))
+    setEditEmailEnabled(Boolean(alert.email_enabled))
+  }
+
+  function cancelEdit() {
+    setEditingAlertId("")
+    setEditMin("")
+    setEditMax("")
+    setEditTelegramEnabled(true)
+    setEditBrowserEnabled(false)
+    setEditAlarmEnabled(false)
+    setEditEmailEnabled(false)
+  }
+
+  async function handleSaveAlert(alertId) {
+    const parsedMin = Number(editMin)
+    const parsedMax = Number(editMax)
+
+    if (!Number.isFinite(parsedMin) || !Number.isFinite(parsedMax) || parsedMin <= 0 || parsedMax <= 0) {
+      setError("Alert target range must contain positive numbers.")
+      return
+    }
+    if (parsedMin > parsedMax) {
+      setError("Alert target min must be <= target max")
+      return
+    }
+
+    setError(null)
+    setSavingAlertId(alertId)
+
+    try {
+      await apiJson(`/alerts/${alertId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target_price_min: parsedMin,
+          target_price_max: parsedMax,
+          telegram_enabled: editTelegramEnabled,
+          browser_enabled: editBrowserEnabled,
+          alarm_enabled: editAlarmEnabled,
+          email_enabled: editEmailEnabled,
+        }),
+      })
+      cancelEdit()
+      await loadAll()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSavingAlertId(null)
+    }
+  }
+
+  async function handleDeleteAlert(alertId) {
+    setError(null)
+    setDeletingAlertId(alertId)
+
+    try {
+      await apiJson(`/alerts/${alertId}`, { method: "DELETE" })
+      if (String(editingAlertId) === String(alertId)) cancelEdit()
+      await loadAll()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDeletingAlertId(null)
+    }
+  }
+
   const byProductId = useMemo(() => new Map(products.map((product) => [Number(product.id), product])), [products])
   const pendingAlerts = useMemo(() => {
     const latestByProduct = new Map()
@@ -173,6 +258,98 @@ function Alerts() {
     )
   }, [alerts])
   const triggeredAlerts = alerts.filter((alert) => alert.triggered_flag)
+
+  function renderAlertEditor(alert) {
+    const isEditing = String(editingAlertId) === String(alert.id)
+    if (!isEditing) return null
+
+    return (
+      <div className="stack" style={{ marginTop: 12 }}>
+        <div className="row" style={{ alignItems: "flex-start" }}>
+          <label className="stack" style={{ flex: 1 }}>
+            <span>Target min</span>
+            <input className="input" value={editMin} onChange={(event) => setEditMin(event.target.value)} />
+          </label>
+          <label className="stack" style={{ flex: 1 }}>
+            <span>Target max</span>
+            <input className="input" value={editMax} onChange={(event) => setEditMax(event.target.value)} />
+          </label>
+        </div>
+
+        <div className="row" style={{ flexWrap: "wrap" }}>
+          <label className="row" style={{ gap: 8 }}>
+            <input type="checkbox" checked={editTelegramEnabled} onChange={(event) => setEditTelegramEnabled(event.target.checked)} />
+            <span>Telegram</span>
+          </label>
+          <label className="row" style={{ gap: 8 }}>
+            <input type="checkbox" checked={editBrowserEnabled} onChange={(event) => setEditBrowserEnabled(event.target.checked)} />
+            <span>Browser</span>
+          </label>
+          <label className="row" style={{ gap: 8 }}>
+            <input type="checkbox" checked={editAlarmEnabled} onChange={(event) => setEditAlarmEnabled(event.target.checked)} />
+            <span>Alarm</span>
+          </label>
+          <label className="row" style={{ gap: 8 }}>
+            <input type="checkbox" checked={editEmailEnabled} onChange={(event) => setEditEmailEnabled(event.target.checked)} />
+            <span>Email</span>
+          </label>
+        </div>
+
+        <div className="row">
+          <button className="button button-small" type="button" onClick={() => handleSaveAlert(alert.id)} disabled={savingAlertId === alert.id}>
+            {savingAlertId === alert.id ? "Saving..." : "Save alert"}
+          </button>
+          <button className="button button-secondary button-small" type="button" onClick={cancelEdit}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  function renderAlertCard(alert) {
+    const product = byProductId.get(Number(alert.product_id))
+    const isTriggered = Boolean(alert.triggered_flag)
+    const isEditing = String(editingAlertId) === String(alert.id)
+
+    return (
+      <article className="card" key={`${isTriggered ? "triggered" : "pending"}-${alert.id}`}>
+        <div className="row">
+          <h3>{product?.name || `Product #${alert.product_id}`}</h3>
+          <span className={isTriggered ? "badge badge-good" : "badge badge-warn"}>{isTriggered ? "Triggered" : "Pending"}</span>
+          {isTriggered ? (
+            <span className={alert.notification_sent_flag ? "badge badge-good" : "badge badge-danger"}>
+              {alert.notification_sent_flag ? "Notified" : "Not notified"}
+            </span>
+          ) : null}
+        </div>
+        <p className="section-sub">Threshold: Rs. {alert.target_price_min} - {alert.target_price_max}</p>
+        <p className="section-sub">Created at: {new Date(alert.created_at).toLocaleString()}</p>
+        {isTriggered ? (
+          <>
+            <p className="section-sub">Triggered at: {alert.triggered_at ? new Date(alert.triggered_at).toLocaleString() : "-"}</p>
+            {alert.notification_sent_at ? <p className="section-sub">Notified at: {new Date(alert.notification_sent_at).toLocaleString()}</p> : null}
+            {alert.notification_error ? <p className="section-sub">Delivery note: {formatDeliveryNote(alert.notification_error)}</p> : null}
+          </>
+        ) : null}
+
+        {!isTriggered ? <p className="section-sub">Notifications: {alert.telegram_enabled ? "Telegram" : "-"}{alert.email_enabled ? ", Email" : ""}{alert.browser_enabled ? ", Browser" : ""}{alert.alarm_enabled ? ", Alarm" : ""}</p> : null}
+
+        {renderAlertEditor(alert)}
+
+        {!isEditing ? (
+          <div className="row">
+            <button className="button button-secondary button-small" type="button" onClick={() => beginEdit(alert)}>
+              Edit
+            </button>
+            <button className="button button-danger button-small" type="button" disabled={deletingAlertId === alert.id} onClick={() => handleDeleteAlert(alert.id)}>
+              {deletingAlertId === alert.id ? "Deleting..." : "Delete"}
+            </button>
+          </div>
+        ) : null}
+      </article>
+    )
+  }
 
   return (
     <section className="stack">
@@ -245,19 +422,7 @@ function Alerts() {
             {pendingAlerts.length === 0 ? (
               <p className="section-sub">No pending alerts right now.</p>
             ) : (
-              pendingAlerts.map((alert) => {
-                const product = byProductId.get(Number(alert.product_id))
-                return (
-                  <article className="card" key={`pending-${alert.id}`}>
-                    <div className="row">
-                      <h3>{product?.name || `Product #${alert.product_id}`}</h3>
-                      <span className="badge badge-warn">Pending</span>
-                    </div>
-                    <p className="section-sub">Threshold: Rs. {alert.target_price_min} - {alert.target_price_max}</p>
-                    <p className="section-sub">Created at: {new Date(alert.created_at).toLocaleString()}</p>
-                  </article>
-                )
-              })
+              pendingAlerts.map((alert) => renderAlertCard(alert))
             )}
           </div>
 
@@ -266,28 +431,7 @@ function Alerts() {
             {triggeredAlerts.length === 0 ? (
               <p className="section-sub">No triggered alerts yet.</p>
             ) : (
-              triggeredAlerts.map((alert) => {
-                const product = byProductId.get(Number(alert.product_id))
-                return (
-                  <article className="card" key={`triggered-${alert.id}`}>
-                    <div className="row">
-                      <h3>{product?.name || `Product #${alert.product_id}`}</h3>
-                      <span className="badge badge-good">Triggered</span>
-                      <span className={alert.notification_sent_flag ? "badge badge-good" : "badge badge-danger"}>
-                        {alert.notification_sent_flag ? "Notified" : "Not notified"}
-                      </span>
-                    </div>
-                    <p className="section-sub">Threshold: Rs. {alert.target_price_min} - {alert.target_price_max}</p>
-                    <p className="section-sub">Triggered at: {alert.triggered_at ? new Date(alert.triggered_at).toLocaleString() : "-"}</p>
-                    {alert.notification_sent_at ? (
-                      <p className="section-sub">Notified at: {new Date(alert.notification_sent_at).toLocaleString()}</p>
-                    ) : null}
-                    {alert.notification_error ? (
-                      <p className="section-sub">Delivery note: {formatDeliveryNote(alert.notification_error)}</p>
-                    ) : null}
-                  </article>
-                )
-              })
+              triggeredAlerts.map((alert) => renderAlertCard(alert))
             )}
           </div>
         </div>

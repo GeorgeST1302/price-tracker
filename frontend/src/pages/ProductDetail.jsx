@@ -6,6 +6,7 @@ import ProductCard from "../components/ProductCard"
 import { apiJson } from "../lib/apiBaseUrl"
 import { formatCurrency } from "../lib/formatters"
 import { readCachedProducts, saveCachedProducts } from "../lib/productCache"
+import { hasRealPurchaseUrl } from "../lib/productUrls"
 
 function getPurchaseButtonLabel(recommendation) {
   return String(recommendation || "").toUpperCase() === "BUY NOW" ? "Buy Now" : "Open Listing"
@@ -203,14 +204,14 @@ function ProductDetail() {
           product={selectedProduct}
           footer={
             <p className="section-sub">
-              Latest snapshot: {formatCurrency(selectedProduct.latest_price)} | Last updated:{" "}
+              Latest snapshot: {formatCurrency(selectedProduct.latest_price, selectedProduct.source_key)} | Last updated: {" "}
               {selectedProduct.last_updated ? new Date(selectedProduct.last_updated).toLocaleString() : "-"}
-              {selectedProduct.historical_low != null ? ` | Low ever: ${formatCurrency(selectedProduct.historical_low)}` : ""}
+              {selectedProduct.historical_low != null ? ` | Low ever: ${formatCurrency(selectedProduct.historical_low, selectedProduct.source_key)}` : ""}
             </p>
           }
           actions={
             <>
-              {selectedProduct.purchase_url ? (
+              {hasRealPurchaseUrl(selectedProduct.purchase_url) ? (
                 <a className="button" href={selectedProduct.purchase_url} target="_blank" rel="noreferrer">
                   {getPurchaseButtonLabel(selectedProduct.recommendation)}
                 </a>

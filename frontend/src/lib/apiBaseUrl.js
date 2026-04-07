@@ -1,4 +1,4 @@
-import { getFetchMode } from "./fetchMode"
+const DEFAULT_PRODUCTION_API_BASE_URL = "https://price-pulse-api.bl-en-u4aid23016.workers.dev"
 
 export function getApiBaseUrl() {
   const fromEnv = import.meta.env.VITE_API_BASE_URL
@@ -14,16 +14,16 @@ export function getApiBaseUrl() {
   if (host === "localhost") return "http://localhost:8787"
   if (host === "127.0.0.1") return "http://127.0.0.1:8787"
 
-  // In production, explicitly require VITE_API_BASE_URL so the app points
-  // to the deployed Worker instead of accidentally calling localhost.
-  console.warn("VITE_API_BASE_URL is not set; API calls may fail in production")
-  return ""
+  // Fall back to the documented production Worker URL so Pages deployments
+  // keep working even if the env var is missing in a preview or alias deploy.
+  console.warn("VITE_API_BASE_URL is not set; falling back to the production Worker URL")
+  return DEFAULT_PRODUCTION_API_BASE_URL
 }
 
 const DEFAULT_TIMEOUT_MS = 20000
 
 export const API_TIMEOUT_MESSAGE =
-  "The Worker is taking too long to respond. If it is warming up, wait a few seconds and try again."
+  "The Scrapy API is taking too long to respond. Please try again in a few seconds."
 
 function formatApiDetail(detail) {
   if (!detail) return null
@@ -100,7 +100,7 @@ function sleep(ms) {
 export function buildApiUrl(path) {
   const baseUrl = getApiBaseUrl()
   if (!baseUrl) {
-    throw new Error("VITE_API_BASE_URL is not set for this deployment.")
+    throw new Error("API base URL is not available for this deployment.")
   }
 
   if (/^https?:\/\//i.test(path)) return path
@@ -113,14 +113,9 @@ export async function apiRequest(path, options = {}) {
   const { timeoutMs = DEFAULT_TIMEOUT_MS, signal, headers, ...rest } = options
   const requestUrl = buildApiUrl(path)
   const requestHeaders = new Headers(headers || {})
-  const fetchMode = getFetchMode()
   const method = String(rest.method || "GET").toUpperCase()
   const retryable = method === "GET" || method === "HEAD"
   const maxAttempts = retryable ? 2 : 1
-
-  if (fetchMode === "zyte-only") {
-    requestHeaders.set("X-PricePulse-Fetch-Mode", "zyte-only")
-  }
 
   let lastError = null
 

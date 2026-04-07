@@ -28,7 +28,7 @@ function buildStats(history) {
   }
 }
 
-function PriceChart({ history, range, onRangeChange }) {
+function PriceChart({ history, range, onRangeChange, sourceKey = null }) {
   const chartRef = useRef(null)
   const canvasRef = useRef(null)
 
@@ -112,19 +112,19 @@ function PriceChart({ history, range, onRangeChange }) {
       <div className="product-metrics">
         <div>
           <span className="metric-label">Current</span>
-          <strong>{formatCurrency(stats.current)}</strong>
+          <strong>{formatCurrency(stats.current, sourceKey)}</strong>
         </div>
         <div>
           <span className="metric-label">Average</span>
-          <strong>{formatCurrency(stats.average)}</strong>
+          <strong>{formatCurrency(stats.average, sourceKey)}</strong>
         </div>
         <div>
           <span className="metric-label">Low</span>
-          <strong>{formatCurrency(stats.min)}</strong>
+          <strong>{formatCurrency(stats.min, sourceKey)}</strong>
         </div>
         <div>
           <span className="metric-label">High</span>
-          <strong>{formatCurrency(stats.max)}</strong>
+          <strong>{formatCurrency(stats.max, sourceKey)}</strong>
         </div>
       </div>
 

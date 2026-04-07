@@ -155,7 +155,7 @@ function History() {
           <div className="notice">No price history yet.</div>
         ) : (
           <div className="stack">
-            <PriceChart history={history} range={range} onRangeChange={setRange} />
+            <PriceChart history={history} range={range} onRangeChange={setRange} sourceKey={selectedProduct?.source_key} />
 
             <div className="table-wrap">
               <table className="table">
@@ -170,7 +170,7 @@ function History() {
                   {history.map((entry) => (
                     <tr key={entry.id}>
                       <td>{new Date(entry.timestamp).toLocaleString()}</td>
-                      <td>{formatCurrency(entry.price)}</td>
+                      <td>{formatCurrency(entry.price, selectedProduct?.source_key)}</td>
                       <td>{entry.fetch_method || "-"}</td>
                     </tr>
                   ))}

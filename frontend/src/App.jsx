@@ -6,7 +6,6 @@ import ProductList from "./pages/ProductList"
 import ProductDetail from "./pages/ProductDetail"
 import History from "./pages/History"
 import Alerts from "./pages/Alerts"
-import SecretFetchModeToggle from "./components/SecretFetchModeToggle"
 import "./App.css"
 
 function App() {
@@ -15,7 +14,6 @@ function App() {
       <div className="app-shell">
         <header className="topbar">
           <div className="brand">
-            <SecretFetchModeToggle />
             <h1>PricePulse</h1>
             <p className="tagline">Analyze historical trends, forecast likely drops, and get real-time alerts to decide whether to buy now or wait.</p>
           </div>

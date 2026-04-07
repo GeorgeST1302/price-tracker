@@ -3,6 +3,7 @@
 PricePulse is a full-stack web app for tracking product prices, comparing listings, and alerting users when prices meet their target range.
 
 Primary stack:
+- Python Scrapy API service in [scrapy-api/](scrapy-api/)
 - JavaScript Cloudflare Worker + D1 backend in [cloudflare-api/](cloudflare-api/)
 - React + Vite frontend in [frontend/](frontend/)
 - Astro landing page in [landing/](landing/) (optional)
@@ -11,18 +12,20 @@ Primary stack:
 
 - Full-stack architecture:
   - Frontend app: React + Vite ([frontend/](frontend/))
-  - Backend API: Cloudflare Worker + D1 ([cloudflare-api/](cloudflare-api/))
+  - Primary scraping backend: Scrapy API service ([scrapy-api/](scrapy-api/))
+  - API gateway + persistence: Cloudflare Worker + D1 ([cloudflare-api/](cloudflare-api/))
   - Landing site: Astro static site ([landing/](landing/), optional)
 - External integrations:
   - Telegram Bot API for alerts
   - Marketplace scraping and scheduled refresh in the JavaScript Worker
 - Product flow:
-  - Search results across Amazon India, Reliance Digital, Snapdeal
+  - Search results across Amazon India, Flipkart, Reliance Digital, Snapdeal
   - Select one listing and start tracking
   - Track by target range (`target_price_min`, `target_price_max`)
   - Store historical prices and show recommendation/status
 - Alerts:
   - Telegram-first alert creation
+  - Alert edit/delete support
   - Trigger checks during refresh/scheduler cycles
 
 ## Routes and API
@@ -46,6 +49,8 @@ Core backend endpoints:
 - `DELETE /products/{id}`
 - `POST /alerts`
 - `GET /alerts`
+- `PATCH /alerts/{id}`
+- `DELETE /alerts/{id}`
 - `GET /notifications/status`
 - `POST /notifications/test`
 
@@ -100,6 +105,8 @@ Live backend smoke:
 - `GET /products/search` -> PASS
 - `POST /products/{id}/refresh` increased history count -> PASS
 - `POST /alerts` upsert/create -> PASS
+- `PATCH /alerts/{id}` update -> PASS
+- `DELETE /alerts/{id}` delete -> PASS
 - `POST /notifications/test` returned success (`mode=test_only`) -> PASS
 
 ## Post-deploy smoke checklist
@@ -110,7 +117,7 @@ Live backend smoke:
 4. Track one listing with target min/max and interval.
 5. Open `/#/products` and edit range once.
 6. Refresh one product and confirm history grows in `/#/detail` or `/#/history`.
-7. Open `/#/alerts`, create an alert, run `Test Telegram`.
+7. Open `/#/alerts`, create, edit, and delete an alert, then run `Test Telegram`.
 8. Check Worker logs with `wrangler tail` for scheduler refresh activity.
 
 ## Notes

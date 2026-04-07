@@ -8,9 +8,11 @@ CORS_ORIGINS = "https://price-tracker-app.pages.dev"
 DEFAULT_REFRESH_MINUTES = "360"
 MIN_REFRESH_MINUTES = "15"
 MAX_CRON_REFRESHES_PER_RUN = "12"
-ALLOW_SYNTHETIC = "1"
+ALLOW_SYNTHETIC = "0"
 TELEGRAM_API_BASE = "https://api.telegram.org"
+SCRAPY_API_BASE = ""
 # Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID with wrangler secret put.
+# Set SCRAPY_API_BASE to the deployed Scrapy API URL.
 # For local wrangler dev against localhost, temporarily override CORS_ORIGINS.
 # Legacy PRICEPULSE_* env names are still accepted by the Worker code.
 

@@ -9,9 +9,10 @@ function formatFetchMethod(value) {
     scraper: "Direct scraper",
     scraper_search_fallback: "Scraper search fallback",
     zyte: "Zyte",
-    fallback: "Fallback data",
-    seed: "Seed data",
-    unknown: "Unknown fetch path",
+  }
+
+  if (normalized === "fallback" || normalized === "seed" || normalized === "synthetic_fallback" || normalized === "unknown") {
+    return null
   }
 
   return labels[normalized] || normalized.replaceAll("_", " ")
@@ -62,7 +63,7 @@ function ProductCard({ product, actions, footer }) {
         <div className="product-metrics">
           <div>
             <span className="metric-label">Current</span>
-            <strong>{formatCurrency(product.latest_price)}</strong>
+            <strong>{formatCurrency(product.latest_price, product.source_key)}</strong>
           </div>
           <div>
             <span className="metric-label">Target</span>
@@ -70,7 +71,7 @@ function ProductCard({ product, actions, footer }) {
           </div>
           <div>
             <span className="metric-label">30D avg</span>
-            <strong>{formatCurrency(avg30)}</strong>
+            <strong>{formatCurrency(avg30, product.source_key)}</strong>
           </div>
           <div>
             <span className="metric-label">Vs avg</span>

@@ -1,6 +1,6 @@
 # Cloudflare API (D1 + Workers)
 
-This folder contains the Cloudflare-native backend for PricePulse so the app can run without the legacy Python backend.
+This folder contains the Cloudflare API gateway and D1 backend for PricePulse.
 
 ## What this backend supports
 
@@ -16,13 +16,15 @@ This folder contains the Cloudflare-native backend for PricePulse so the app can
 - `GET /products/search`
 - `GET /alerts`
 - `POST /alerts`
+- `PATCH /alerts/:id`
+- `DELETE /alerts/:id`
 - `GET /notifications/status`
 - `POST /notifications/test`
 
 Notes:
 
-- Search and refresh use live marketplace fetchers first: Amazon India, Reliance Digital, Snapdeal, then generic HTML/JSON-LD parsing.
-- Synthetic fallback is enabled in production (`ALLOW_SYNTHETIC = "1"` in `wrangler.toml`) so search and refresh still return usable data when marketplace fetches are blocked.
+- Search and refresh now use the dedicated Scrapy API service as the primary scraper backend.
+- Synthetic fallback is disabled in production (`ALLOW_SYNTHETIC = "0"` in `wrangler.toml`) so search and refresh stay tied to live data.
 - Telegram delivery uses Worker secrets: `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
 - Scheduled refresh runs from a Worker cron trigger every 15 minutes and is capped per run with `MAX_CRON_REFRESHES_PER_RUN`.
 
@@ -43,6 +45,7 @@ Optional vars and defaults:
 - `MAX_CRON_REFRESHES_PER_RUN` - `12`
 - `ALLOW_SYNTHETIC` - `0` in production
 - `TELEGRAM_API_BASE` - `https://api.telegram.org`
+- `SCRAPY_API_BASE` - base URL for the Scrapy API service (required for live search/refresh)
 
 Legacy aliases still supported by the Worker:
 

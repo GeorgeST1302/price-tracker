@@ -11,6 +11,7 @@ This app is the user-facing dashboard for PricePulse. It consumes the Cloudflare
 - Dashboard insights and recommendation badges
 - Product Detail and History views with chart + refresh
 - Alerts page with Telegram-first flow and test action
+- Alerts page with edit/delete controls
 
 ## Routes
 
@@ -75,8 +76,8 @@ Verified on April 3, 2026:
 ## Alert UI behavior
 
 - Alert creation is Telegram-focused.
-- Browser, Alarm, and Email checkboxes are intentionally removed from UI.
-- Frontend sends:
+- The UI also supports editing and deleting alerts.
+- Frontend defaults new alerts to:
   - `telegram_enabled=true`
   - `browser_enabled=false`
   - `alarm_enabled=false`
