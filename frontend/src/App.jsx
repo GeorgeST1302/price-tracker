@@ -6,6 +6,7 @@ import ProductList from "./pages/ProductList"
 import ProductDetail from "./pages/ProductDetail"
 import History from "./pages/History"
 import Alerts from "./pages/Alerts"
+import SeleniumTracker from "./pages/SeleniumTracker"
 import "./App.css"
 
 function App() {
@@ -37,6 +38,9 @@ function App() {
             <NavLink to="/add" className={({ isActive }) => (isActive ? "tab tab-active" : "tab")}>
               Add Product
             </NavLink>
+            <NavLink to="/tracker" className={({ isActive }) => (isActive ? "tab tab-active" : "tab")}>
+              Selenium Tracker
+            </NavLink>
           </nav>
         </header>
 
@@ -48,6 +52,7 @@ function App() {
             <Route path="/history" element={<History />} />
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/detail" element={<ProductDetail />} />
+            <Route path="/tracker" element={<SeleniumTracker />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
