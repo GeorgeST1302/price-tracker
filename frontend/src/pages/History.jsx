@@ -1,23 +1,13 @@
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 
-import PriceChart from "../components/PriceChart"
 import { apiJson } from "../lib/apiBaseUrl"
-import { formatCurrency } from "../lib/formatters"
-
-function rangeToQuery(range) {
-  if (range === "7d") return "?days=7&limit=120"
-  if (range === "30d") return "?days=30&limit=200"
-  return "?limit=200"
-}
 
 function History() {
   const [products, setProducts] = useState([])
   const [selectedProductId, setSelectedProductId] = useState("")
   const [history, setHistory] = useState([])
-  const [range, setRange] = useState("30d")
   const [loadingProducts, setLoadingProducts] = useState(true)
   const [loadingHistory, setLoadingHistory] = useState(false)
-  const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState(null)
 
   useEffect(() => {
@@ -41,17 +31,18 @@ function History() {
     }
 
     void loadProducts()
+
     return () => {
       cancelled = true
     }
   }, [])
 
-  const loadHistory = useCallback(async (productId, nextRange) => {
+  async function loadHistory(productId) {
     setLoadingHistory(true)
     setError(null)
 
     try {
-      const data = await apiJson(`/products/${productId}/history${rangeToQuery(nextRange)}`)
+      const data = await apiJson(`/products/${productId}/history`)
       setHistory(Array.isArray(data) ? data : [])
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -59,33 +50,20 @@ function History() {
     } finally {
       setLoadingHistory(false)
     }
-  }, [])
+  }
 
-  useEffect(() => {
+  async function refreshNow() {
     if (!selectedProductId) return
-    void loadHistory(selectedProductId, range)
-  }, [loadHistory, selectedProductId, range])
 
-  const runSilentSync = useCallback(async () => {
-    if (!selectedProductId) return
-    setSyncing(true)
+    setError(null)
+
     try {
-      await apiJson(`/products/${selectedProductId}/refresh`, { method: "POST", timeoutMs: 30000 })
-      await loadHistory(selectedProductId, range)
-    } catch {
-      // keep silent to avoid interrupting chart exploration
-    } finally {
-      setSyncing(false)
+      await apiJson(`/products/${selectedProductId}/refresh`, { method: "POST" })
+      await loadHistory(selectedProductId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
     }
-  }, [selectedProductId, range, loadHistory])
-
-  useEffect(() => {
-    if (!selectedProductId) return undefined
-    const timer = window.setInterval(() => {
-      void runSilentSync()
-    }, 60000)
-    return () => window.clearInterval(timer)
-  }, [selectedProductId, runSilentSync])
+  }
 
   const selectedProduct = products.find((product) => String(product.id) === String(selectedProductId))
 
@@ -93,8 +71,8 @@ function History() {
     <section className="stack">
       <div className="section-head">
         <div>
-          <h2>Price history</h2>
-          <p className="section-sub">Inspect 7-day and 30-day movement, then compare current price against the recent range.</p>
+          <h2>Price History</h2>
+          <p className="section-sub">Inspect timeline data and refresh a product instantly.</p>
         </div>
       </div>
 
@@ -115,10 +93,11 @@ function History() {
               id="history-product-select"
               className="select"
               value={selectedProductId}
-              onChange={(event) => {
+              onChange={async (event) => {
                 const nextId = event.target.value
                 setSelectedProductId(nextId)
                 setHistory([])
+                if (nextId) await loadHistory(nextId)
               }}
             >
               <option value="">Select...</option>
@@ -130,7 +109,11 @@ function History() {
             </select>
           </label>
 
-          <p className="section-sub">{syncing ? "Auto-syncing price..." : "Auto-sync runs in background every minute while this page is open."}</p>
+          <div className="row">
+            <button className="button" type="button" onClick={refreshNow} disabled={!selectedProductId || loadingHistory}>
+              Refresh price now
+            </button>
+          </div>
         </div>
       )}
 
@@ -139,9 +122,7 @@ function History() {
           <p>
             <b>{selectedProduct.name}</b>
           </p>
-          <p className="section-sub">
-            Target: {formatCurrency(selectedProduct.target_price_min)} - {formatCurrency(selectedProduct.target_price_max)} | Source: {selectedProduct.source || "Tracked source"}
-          </p>
+          <p>Target: Rs. {selectedProduct.target_price}</p>
         </div>
       ) : null}
 
@@ -154,29 +135,23 @@ function History() {
         ) : history.length === 0 ? (
           <div className="notice">No price history yet.</div>
         ) : (
-          <div className="stack">
-            <PriceChart history={history} range={range} onRangeChange={setRange} sourceKey={selectedProduct?.source_key} />
-
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Timestamp</th>
-                    <th>Price</th>
-                    <th>Fetch path</th>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>{new Date(entry.timestamp).toLocaleString()}</td>
+                    <td>Rs. {entry.price}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {history.map((entry) => (
-                    <tr key={entry.id}>
-                      <td>{new Date(entry.timestamp).toLocaleString()}</td>
-                      <td>{formatCurrency(entry.price, selectedProduct?.source_key)}</td>
-                      <td>{entry.fetch_method || "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
         )
       ) : null}

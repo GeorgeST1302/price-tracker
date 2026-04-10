@@ -6,7 +6,7 @@ import ProductList from "./pages/ProductList"
 import ProductDetail from "./pages/ProductDetail"
 import History from "./pages/History"
 import Alerts from "./pages/Alerts"
-import SeleniumTracker from "./pages/SeleniumTracker"
+import AlertWatcher from "./components/AlertWatcher"
 import "./App.css"
 
 function App() {
@@ -15,8 +15,9 @@ function App() {
       <div className="app-shell">
         <header className="topbar">
           <div className="brand">
+            <p className="eyebrow">Price monitoring & alerting</p>
             <h1>PricePulse</h1>
-            <p className="tagline">Analyze historical trends, forecast likely drops, and get real-time alerts to decide whether to buy now or wait.</p>
+            <p className="tagline">Track the products you care about and get notified the moment the price drops below your target.</p>
           </div>
 
           <nav className="tabs" aria-label="Main navigation">
@@ -38,11 +39,10 @@ function App() {
             <NavLink to="/add" className={({ isActive }) => (isActive ? "tab tab-active" : "tab")}>
               Add Product
             </NavLink>
-            <NavLink to="/tracker" className={({ isActive }) => (isActive ? "tab tab-active" : "tab")}>
-              Selenium Tracker
-            </NavLink>
           </nav>
         </header>
+
+        <AlertWatcher />
 
         <main className="page">
           <Routes>
@@ -52,7 +52,6 @@ function App() {
             <Route path="/history" element={<History />} />
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/detail" element={<ProductDetail />} />
-            <Route path="/tracker" element={<SeleniumTracker />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

@@ -1,13 +1,19 @@
 import { useEffect, useMemo, useState } from "react"
-import { Link } from "react-router-dom"
 
-import ProductCard from "../components/ProductCard"
 import { apiJson, apiRequest } from "../lib/apiBaseUrl"
-import { readCachedProducts, saveCachedProducts } from "../lib/productCache"
-import { hasRealPurchaseUrl } from "../lib/productUrls"
 
-function getPurchaseButtonLabel(recommendation) {
-  return String(recommendation || "").toUpperCase() === "BUY NOW" ? "Buy Now" : "Open Listing"
+function getRelativeTimeLabel(isoDate) {
+  const ms = Date.now() - new Date(isoDate).getTime()
+  const minutes = Math.floor(ms / 60000)
+
+  if (!Number.isFinite(minutes) || minutes < 1) return "just now"
+  if (minutes < 60) return `${minutes} min${minutes === 1 ? "" : "s"} ago`
+
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`
+
+  const days = Math.floor(hours / 24)
+  return `${days} day${days === 1 ? "" : "s"} ago`
 }
 
 function ProductList() {
@@ -18,10 +24,6 @@ function ProductList() {
   const [loading, setLoading] = useState(true)
   const [deletingId, setDeletingId] = useState(null)
   const [error, setError] = useState(null)
-  const [editingId, setEditingId] = useState(null)
-  const [editMin, setEditMin] = useState("")
-  const [editMax, setEditMax] = useState("")
-  const [savingId, setSavingId] = useState(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -40,27 +42,32 @@ function ProductList() {
 
       try {
         const params = new URLSearchParams()
-        if (searchTerm) params.set("q", searchTerm)
+        if (searchTerm) {
+          params.set("q", searchTerm)
+        }
 
         const path = params.toString() ? `/products?${params.toString()}` : "/products"
         const data = await apiJson(path)
         if (cancelled) return
-        const nextProducts = Array.isArray(data) ? data : []
-        setProducts(nextProducts)
-        if (!searchTerm) saveCachedProducts(nextProducts)
+
+        if (!Array.isArray(data)) {
+          setProducts([])
+          setError("Unexpected API response format")
+          return
+        }
+
+        setProducts(data)
       } catch (err) {
         if (cancelled) return
-        const cachedProducts = searchTerm ? [] : readCachedProducts()
-        setProducts(cachedProducts)
-        if (!cachedProducts.length) {
-          setError(err instanceof Error ? err.message : String(err))
-        }
+        setProducts([])
+        setError(err instanceof Error ? err.message : String(err))
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
 
     void loadProducts()
+
     return () => {
       cancelled = true
     }
@@ -69,25 +76,18 @@ function ProductList() {
   const sortedProducts = useMemo(() => {
     const cloned = [...products]
 
-    function targetCeiling(product) {
-      if (product?.target_price_max != null) return Number(product.target_price_max)
-      if (product?.target_price != null) return Number(product.target_price)
-      if (product?.target_price_min != null) return Number(product.target_price_min)
-      return Number.POSITIVE_INFINITY
-    }
-
     if (sortBy === "name_asc") {
       cloned.sort((a, b) => String(a.name).localeCompare(String(b.name)))
       return cloned
     }
 
     if (sortBy === "target_asc") {
-      cloned.sort((a, b) => targetCeiling(a) - targetCeiling(b))
+      cloned.sort((a, b) => Number(a.target_price) - Number(b.target_price))
       return cloned
     }
 
     if (sortBy === "target_desc") {
-      cloned.sort((a, b) => targetCeiling(b) - targetCeiling(a))
+      cloned.sort((a, b) => Number(b.target_price) - Number(a.target_price))
       return cloned
     }
 
@@ -101,7 +101,15 @@ function ProductList() {
 
     try {
       await apiRequest(`/products/${productId}`, { method: "DELETE" })
-      setProducts((current) => current.filter((product) => Number(product.id) !== Number(productId)))
+
+      const params = new URLSearchParams()
+      if (searchTerm) {
+        params.set("q", searchTerm)
+      }
+
+      const path = params.toString() ? `/products?${params.toString()}` : "/products"
+      const data = await apiJson(path)
+      setProducts(Array.isArray(data) ? data : [])
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -109,53 +117,12 @@ function ProductList() {
     }
   }
 
-  function beginEdit(product) {
-    setEditingId(product.id)
-    setEditMin(String(product.target_price_min ?? product.target_price ?? ""))
-    setEditMax(String(product.target_price_max ?? product.target_price ?? ""))
-  }
-
-  async function saveTargetRange(productId) {
-    const parsedMin = Number(editMin)
-    const parsedMax = Number(editMax)
-
-    if (!Number.isFinite(parsedMin) || !Number.isFinite(parsedMax) || parsedMin <= 0 || parsedMax <= 0) {
-      setError("Target range must contain positive numbers.")
-      return
-    }
-    if (parsedMin > parsedMax) {
-      setError("Target min must be less than or equal to target max.")
-      return
-    }
-
-    setError(null)
-    setSavingId(productId)
-    try {
-      const updated = await apiJson(`/products/${productId}/target`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          target_price_min: parsedMin,
-          target_price_max: parsedMax,
-        }),
-      })
-      setProducts((current) => current.map((item) => (Number(item.id) === Number(productId) ? updated : item)))
-      setEditingId(null)
-      setEditMin("")
-      setEditMax("")
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setSavingId(null)
-    }
-  }
-
   return (
     <section className="stack">
       <div className="section-head">
         <div>
-          <h2>Tracked products</h2>
-          <p className="section-sub">Search, compare recommendations, and jump straight into purchase or deeper inspection.</p>
+          <h2>Tracked Products</h2>
+          <p className="section-sub">All products monitored by PricePulse (prices update automatically on a schedule).</p>
         </div>
       </div>
 
@@ -175,7 +142,7 @@ function ProductList() {
         </select>
 
         {searchInput ? (
-          <button className="button button-secondary" type="button" onClick={() => setSearchInput("")}>
+          <button className="button" type="button" onClick={() => setSearchInput("")}>
             Clear
           </button>
         ) : null}
@@ -186,7 +153,7 @@ function ProductList() {
       {loading ? (
         <div className="row">
           <span className="spinner" aria-label="Loading" />
-          <span>{searchTerm ? "Searching tracked products..." : "Loading products..."}</span>
+          <span>{searchTerm ? "Searching products..." : "Loading products..."}</span>
         </div>
       ) : sortedProducts.length === 0 ? (
         <div className="notice">
@@ -196,72 +163,30 @@ function ProductList() {
         <div className="stack">
           <p className="section-sub">Showing {sortedProducts.length} result(s)</p>
           {sortedProducts.map((product) => (
-            <ProductCard
-              key={product.id}
-              product={product}
-              footer={<p className="section-sub">Added: {new Date(product.created_at).toLocaleString()}</p>}
-              actions={
-                <>
-                  <Link className="button button-secondary" to={`/detail?product=${product.id}`}>
-                    View Detail
-                  </Link>
-                  {hasRealPurchaseUrl(product.purchase_url) ? (
-                    <a className="button" href={product.purchase_url} target="_blank" rel="noreferrer">
-                      {getPurchaseButtonLabel(product.recommendation)}
-                    </a>
-                  ) : null}
-                  <button
-                    className="button button-danger"
-                    type="button"
-                    disabled={deletingId === product.id}
-                    onClick={() => handleDelete(product.id)}
-                  >
-                    {deletingId === product.id ? "Deleting..." : "Delete"}
-                  </button>
-                  {editingId === product.id ? (
-                    <>
-                      <input
-                        className="input"
-                        style={{ minWidth: 140 }}
-                        value={editMin}
-                        onChange={(event) => setEditMin(event.target.value)}
-                        placeholder="Target min"
-                      />
-                      <input
-                        className="input"
-                        style={{ minWidth: 140 }}
-                        value={editMax}
-                        onChange={(event) => setEditMax(event.target.value)}
-                        placeholder="Target max"
-                      />
-                      <button
-                        className="button button-small"
-                        type="button"
-                        disabled={savingId === product.id}
-                        onClick={() => saveTargetRange(product.id)}
-                      >
-                        {savingId === product.id ? "Saving..." : "Save range"}
-                      </button>
-                      <button
-                        className="button button-secondary button-small"
-                        type="button"
-                        onClick={() => {
-                          setEditingId(null)
-                          setEditMin("")
-                          setEditMax("")
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <button className="button button-secondary button-small" type="button" onClick={() => beginEdit(product)}>
-                      Edit range
-                    </button>
-                  )}
-                </>
-              }
-            />
+            <article className="card" key={product.id}>
+              <div className="row">
+                <h3>{product.name}</h3>
+                <span className="badge badge-warn">Target Rs. {product.target_price}</span>
+              </div>
+              <p className="section-sub">Added: {new Date(product.created_at).toLocaleDateString()}</p>
+              <p className="section-sub">Last updated: {product.last_updated ? getRelativeTimeLabel(product.last_updated) : "-"}</p>
+              <div className="row" style={{ marginTop: 10 }}>
+                <span className="section-sub">
+                  Latest: {Number.isFinite(Number(product.latest_price)) ? `Rs. ${Number(product.latest_price)}` : "N/A"}
+                </span>
+                <span className={product.recommendation === "BUY" ? "badge badge-good" : product.recommendation === "HOLD" ? "badge badge-danger" : "badge badge-warn"}>
+                  {product.recommendation || "-"}
+                </span>
+                <button
+                  className="button"
+                  type="button"
+                  disabled={deletingId === product.id}
+                  onClick={() => handleDelete(product.id)}
+                >
+                  {deletingId === product.id ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+            </article>
           ))}
         </div>
       )}
