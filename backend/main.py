@@ -90,6 +90,15 @@ def healthz():
     return {"status": "ok"}
 
 
+@app.get("/version")
+def version():
+    return {
+        "service": "pricepulse-backend",
+        "render_git_commit": os.getenv("RENDER_GIT_COMMIT"),
+        "render_service_id": os.getenv("RENDER_SERVICE_ID"),
+    }
+
+
 @app.get("/notifications/status")
 def notifications_status():
     return {
