@@ -19,20 +19,19 @@ function getRelativeTimeLabel(isoDate) {
 function formatDealStatus(value) {
   if (!value) return "-"
 
-  const normalized = String(value).trim().toUpperCase()
+  const normalized = String(value).trim().toUpperCase().replace(/[\s-]+/g, "_")
   if (normalized === "GOOD_DEAL") return "Good deal"
-  if (normalized === "ON_HOLD") return "On hold"
+  if (normalized === "ON_HOLD" || normalized === "HOLD_ON" || normalized === "HOLD") return "On hold"
   if (normalized === "BUY") return "Buy"
 
   return String(value)
 }
 
 function dealStatusTone(value) {
-  const normalized = String(value || "").trim().toUpperCase()
+  const normalized = String(value || "").trim().toUpperCase().replace(/[\s-]+/g, "_")
   if (normalized === "GOOD_DEAL") return "badge-good"
   if (normalized === "BUY") return "badge-good"
-  if (normalized === "ON_HOLD") return "badge-warn"
-  if (normalized === "HOLD") return "badge-danger"
+  if (normalized === "ON_HOLD" || normalized === "HOLD_ON" || normalized === "HOLD" || normalized === "WAIT") return "badge-warn"
   return "badge-warn"
 }
 

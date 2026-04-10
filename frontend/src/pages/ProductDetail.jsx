@@ -133,9 +133,9 @@ function ProductDetail() {
     const value = selectedProduct?.recommendation
     if (!value) return "-"
 
-    const normalized = String(value).trim().toUpperCase()
+    const normalized = String(value).trim().toUpperCase().replace(/[\s-]+/g, "_")
     if (normalized === "GOOD_DEAL") return "Good deal"
-    if (normalized === "ON_HOLD") return "On hold"
+    if (normalized === "ON_HOLD" || normalized === "HOLD_ON" || normalized === "HOLD") return "On hold"
     if (normalized === "BUY") return "Buy"
     return String(value)
   })()
