@@ -431,35 +431,39 @@ def _record_prices_for_all_products():
 
 
 def _seed_default_products_if_empty():
-    """Seed a few demo products so first-time users see useful data immediately."""
+    """Seed a few demo products so first-time users see useful data immediately.
+
+    If the DB already has some products but fewer than 4, this will add
+    missing demo items (by ASIN) so the UI can demonstrate BUY/GOOD_DEAL/ON_HOLD.
+    """
     db = SessionLocal()
     try:
         existing_count = db.query(models.Product).count()
-        if existing_count > 0:
+        if existing_count >= 4:
             return
 
         seed_products = [
-            {
-                "name": "Logitech G102 Gaming Mouse",
-                "asin": "B0895DY6F5",
-                "target_price": 1200.0,
-                "prices": [1499.0, 1149.0],
-            },
+            # BUY: latest <= target (but started above target).
             {
                 "name": "Apple iPhone 13 (128GB)",
                 "asin": "B09G9BL5CP",
                 "target_price": 52000.0,
-                "prices": [55999.0, 53999.0],
+                "prices": [55999.0, 49999.0],
             },
+            # GOOD_DEAL: latest <= target by >= 10%.
             {
                 "name": "boAt Rockerz 450 Headphones",
                 "asin": "B08R6K8W7C",
                 "target_price": 1499.0,
-                "prices": [1999.0, 1299.0],
+                "prices": [1999.0, 1199.0],
             },
         ]
 
         for item in seed_products:
+            existing = db.query(models.Product).filter(models.Product.asin == item["asin"]).first()
+            if existing:
+                continue
+
             product = models.Product(
                 name=item["name"],
                 asin=item["asin"],
