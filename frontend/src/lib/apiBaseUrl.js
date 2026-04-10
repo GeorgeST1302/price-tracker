@@ -63,6 +63,15 @@ export async function apiRequest(path, options = {}) {
     })
 
     if (!response.ok) {
+      const contentType = response.headers.get("content-type") || ""
+      if (contentType.includes("application/json")) {
+        const payload = await response.json().catch(() => null)
+        const detail = payload && typeof payload === "object" ? payload.detail : null
+        if (typeof detail === "string" && detail.trim()) {
+          throw new Error(detail)
+        }
+      }
+
       const bodyText = await response.text().catch(() => "")
       throw new Error(`HTTP ${response.status} ${response.statusText}${bodyText ? ` - ${bodyText}` : ""}`)
     }

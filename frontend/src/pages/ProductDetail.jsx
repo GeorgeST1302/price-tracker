@@ -129,6 +129,17 @@ function ProductDetail() {
   const isDropped =
     selectedProduct && Number.isFinite(Number(latestPrice)) && Number(latestPrice) <= Number(selectedProduct.target_price)
 
+  const recommendationLabel = (() => {
+    const value = selectedProduct?.recommendation
+    if (!value) return "-"
+
+    const normalized = String(value).trim().toUpperCase()
+    if (normalized === "GOOD_DEAL") return "Good deal"
+    if (normalized === "ON_HOLD") return "On hold"
+    if (normalized === "BUY") return "Buy"
+    return String(value)
+  })()
+
   return (
     <section className="stack">
       <div className="section-head">
@@ -186,7 +197,7 @@ function ProductDetail() {
             {isDropped ? <span className="badge badge-good">Price dropped!</span> : null}
           </div>
           <p className="section-sub">Last updated: {selectedProduct.last_updated ? new Date(selectedProduct.last_updated).toLocaleString() : "-"}</p>
-          <p className="section-sub">Recommendation: {selectedProduct.recommendation || "-"} | Trend: {selectedProduct.trend || "-"}</p>
+          <p className="section-sub">Status: {recommendationLabel} | Trend: {selectedProduct.trend || "-"}</p>
         </div>
       ) : null}
 

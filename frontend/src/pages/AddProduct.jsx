@@ -74,6 +74,14 @@ function AddProduct() {
       return
     }
 
+    if (Number.isFinite(Number(selectedPreview?.price))) {
+      const current = Number(selectedPreview.price)
+      if (parsedTarget >= current) {
+        setError(`Target price must be lower than the current price (current: Rs. ${current}).`)
+        return
+      }
+    }
+
     try {
       setLoading(true)
       const data = await apiJson("/products", {
@@ -178,7 +186,7 @@ function AddProduct() {
           <button className="button" type="submit" disabled={loading}>
             {loading ? "Adding..." : "Start Tracking"}
           </button>
-          <span className="section-sub">Select a live result to preview seller and current price before tracking.</span>
+          <span className="section-sub">Set a target below today’s price to hunt for a deal.</span>
         </div>
       </form>
 

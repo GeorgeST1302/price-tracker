@@ -86,6 +86,15 @@ function Alerts() {
       return
     }
 
+    const selected = products.find((item) => Number(item.id) === Number(parsedProductId))
+    if (Number.isFinite(Number(selected?.latest_price))) {
+      const current = Number(selected.latest_price)
+      if (parsedTarget >= current) {
+        setError(`Alert target price must be lower than the current price (current: Rs. ${current}).`)
+        return
+      }
+    }
+
     try {
       setSubmitting(true)
       const created = await apiJson("/alerts", {

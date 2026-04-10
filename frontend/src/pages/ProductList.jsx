@@ -16,6 +16,26 @@ function getRelativeTimeLabel(isoDate) {
   return `${days} day${days === 1 ? "" : "s"} ago`
 }
 
+function formatDealStatus(value) {
+  if (!value) return "-"
+
+  const normalized = String(value).trim().toUpperCase()
+  if (normalized === "GOOD_DEAL") return "Good deal"
+  if (normalized === "ON_HOLD") return "On hold"
+  if (normalized === "BUY") return "Buy"
+
+  return String(value)
+}
+
+function dealStatusTone(value) {
+  const normalized = String(value || "").trim().toUpperCase()
+  if (normalized === "GOOD_DEAL") return "badge-good"
+  if (normalized === "BUY") return "badge-good"
+  if (normalized === "ON_HOLD") return "badge-warn"
+  if (normalized === "HOLD") return "badge-danger"
+  return "badge-warn"
+}
+
 function ProductList() {
   const [products, setProducts] = useState([])
   const [searchInput, setSearchInput] = useState("")
@@ -174,8 +194,8 @@ function ProductList() {
                 <span className="section-sub">
                   Latest: {Number.isFinite(Number(product.latest_price)) ? `Rs. ${Number(product.latest_price)}` : "N/A"}
                 </span>
-                <span className={product.recommendation === "BUY" ? "badge badge-good" : product.recommendation === "HOLD" ? "badge badge-danger" : "badge badge-warn"}>
-                  {product.recommendation || "-"}
+                <span className={`badge ${dealStatusTone(product.recommendation)}`}>
+                  {formatDealStatus(product.recommendation)}
                 </span>
                 <button
                   className="button"

@@ -29,6 +29,28 @@ ensure_sqlite_schema()
 app = FastAPI(title="PricePulse API")
 
 
+def _compute_deal_status(latest_price: float | None, target_price: float | None) -> str | None:
+    if latest_price is None or target_price is None:
+        return None
+
+    try:
+        latest = float(latest_price)
+        target = float(target_price)
+    except (TypeError, ValueError):
+        return None
+
+    if not (latest > 0 and target > 0):
+        return None
+
+    if latest <= target:
+        discount_ratio = (target - latest) / target if target else 0.0
+        if discount_ratio >= 0.10:
+            return "GOOD_DEAL"
+        return "BUY"
+
+    return "ON_HOLD"
+
+
 def _parse_cors_origins_from_env() -> list[str]:
     raw = os.getenv("CORS_ORIGINS", "")
     if not raw.strip():
@@ -97,7 +119,8 @@ def _attach_product_insights(db: Session, product: models.Product) -> models.Pro
     if prices:
         product.latest_price = prices[-1]
         product.trend = compute_trend(prices)
-        product.recommendation = compute_recommendation(prices)
+        deal_status = _compute_deal_status(product.latest_price, product.target_price)
+        product.recommendation = deal_status or compute_recommendation(prices)
         # If last_updated wasn't set for legacy rows, infer from newest history.
         if not product.last_updated:
             newest = (
@@ -177,6 +200,18 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
     if not product_data or "title" not in product_data or "price" not in product_data:
         raise HTTPException(status_code=502, detail="Failed to fetch product details from Amazon")
 
+    try:
+        live_price = float(product_data["price"])
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=502, detail="Failed to fetch a numeric price from Amazon")
+
+    requested_target = float(product.target_price)
+    if requested_target >= live_price:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Target price must be lower than the current price (current: Rs. {live_price:.2f}).",
+        )
+
     new_product = models.Product(
         name=product_data["title"],
         asin=resolved_asin,
@@ -191,7 +226,7 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
     # 🔥 Store first price entry
     price_entry = models.PriceHistory(
         product_id=new_product.id,
-        price=product_data["price"]
+        price=live_price
     )
 
     db.add(price_entry)
@@ -315,12 +350,24 @@ def create_alert(alert: schemas.AlertCreate, db: Session = Depends(get_db)):
     if not isinstance(alert.target_price, (int, float)) or alert.target_price <= 0:
         raise HTTPException(status_code=400, detail="target_price must be a positive number")
 
+    latest_entry = _get_latest_price_entry(db, product.id)
+    if latest_entry and latest_entry.price is not None:
+        try:
+            current_price = float(latest_entry.price)
+        except (TypeError, ValueError):
+            current_price = None
+
+        if current_price is not None and float(alert.target_price) >= current_price:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Alert target price must be lower than the current price (current: Rs. {current_price:.2f}).",
+            )
+
     new_alert = models.Alert(product_id=alert.product_id, target_price=float(alert.target_price))
     db.add(new_alert)
     db.commit()
     db.refresh(new_alert)
 
-    latest_entry = _get_latest_price_entry(db, product.id)
     if latest_entry and latest_entry.price is not None:
         try:
             _trigger_alert_if_needed(new_alert, product, float(latest_entry.price), db)
@@ -396,19 +443,19 @@ def _seed_default_products_if_empty():
                 "name": "Logitech G102 Gaming Mouse",
                 "asin": "B0895DY6F5",
                 "target_price": 1200.0,
-                "price": 1149.0,
+                "prices": [1499.0, 1149.0],
             },
             {
                 "name": "Apple iPhone 13 (128GB)",
                 "asin": "B09G9BL5CP",
                 "target_price": 52000.0,
-                "price": 53999.0,
+                "prices": [55999.0, 53999.0],
             },
             {
                 "name": "boAt Rockerz 450 Headphones",
                 "asin": "B08R6K8W7C",
                 "target_price": 1499.0,
-                "price": 1399.0,
+                "prices": [1999.0, 1299.0],
             },
         ]
 
@@ -423,10 +470,12 @@ def _seed_default_products_if_empty():
             db.commit()
             db.refresh(product)
 
-            entry = models.PriceHistory(product_id=product.id, price=item["price"])
-            db.add(entry)
-            product.last_updated = entry.timestamp
-            db.commit()
+            for price in item["prices"]:
+                entry = models.PriceHistory(product_id=product.id, price=float(price))
+                db.add(entry)
+                db.commit()
+                product.last_updated = entry.timestamp
+                db.commit()
     finally:
         db.close()
 

@@ -2,6 +2,26 @@ import { useCallback, useEffect, useState } from "react"
 
 import { apiJson, apiRequest } from "../lib/apiBaseUrl"
 
+function formatDealStatus(value) {
+  if (!value) return "-"
+
+  const normalized = String(value).trim().toUpperCase()
+  if (normalized === "GOOD_DEAL") return "Good deal"
+  if (normalized === "ON_HOLD") return "On hold"
+  if (normalized === "BUY") return "Buy"
+
+  return String(value)
+}
+
+function dealStatusTone(value) {
+  const normalized = String(value || "").trim().toUpperCase()
+  if (normalized === "GOOD_DEAL") return "badge-good"
+  if (normalized === "BUY") return "badge-good"
+  if (normalized === "ON_HOLD") return "badge-warn"
+  if (normalized === "HOLD") return "badge-danger"
+  return "badge-warn"
+}
+
 function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -42,8 +62,8 @@ function Dashboard() {
           Number.isFinite(latest) && Number.isFinite(oldest) && oldest > 0 ? ((oldest - latest) / oldest) * 100 : null
         const gap = Number.isFinite(latest) ? latest - product.target_price : null
 
-        const recommendation = product.recommendation || "-"
-        const tone = recommendation === "BUY" ? "badge-good" : recommendation === "HOLD" ? "badge-danger" : "badge-warn"
+        const recommendation = formatDealStatus(product.recommendation)
+        const tone = dealStatusTone(product.recommendation)
 
         return {
           product,
