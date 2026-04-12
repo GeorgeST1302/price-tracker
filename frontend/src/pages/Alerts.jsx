@@ -31,6 +31,7 @@ function Alerts() {
 
   const [productId, setProductId] = useState("")
   const [targetPrice, setTargetPrice] = useState("")
+  const [overrideTargetPrice, setOverrideTargetPrice] = useState(false)
 
   async function loadAll() {
     setLoading(true)
@@ -68,6 +69,17 @@ function Alerts() {
       cancelled = true
     }
   }, [])
+
+  // Auto-fill target price when product is selected
+  useEffect(() => {
+    if (productId && selectedProduct?.target_price) {
+      setTargetPrice(String(selectedProduct.target_price))
+      setOverrideTargetPrice(false)
+    } else {
+      setTargetPrice("")
+      setOverrideTargetPrice(false)
+    }
+  }, [productId, selectedProduct])
 
   async function handleCreate(event) {
     event.preventDefault()
@@ -168,17 +180,60 @@ function Alerts() {
           </select>
         </label>
 
-        <label className="stack" htmlFor="alert-target-price">
-          <span>Alert target price</span>
-          <input
-            id="alert-target-price"
-            className="input"
-            value={targetPrice}
-            onChange={(event) => setTargetPrice(event.target.value)}
-            placeholder="e.g. 1200"
-            disabled={loading || submitting}
-          />
-        </label>
+        {selectedProduct && selectedProduct.target_price ? (
+          <div className="stack">
+            <div className="stack">
+              <div className="row">
+                <label htmlFor="alert-target-price">
+                  <span>Alert target price</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setOverrideTargetPrice(!overrideTargetPrice)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--color-link, #0066cc)",
+                    cursor: "pointer",
+                    padding: "0",
+                    fontSize: "0.9em",
+                    textDecoration: "underline",
+                  }}
+                  disabled={loading || submitting}
+                >
+                  {overrideTargetPrice ? "Use default" : "Override"}
+                </button>
+              </div>
+              <input
+                id="alert-target-price"
+                className="input"
+                value={targetPrice}
+                onChange={(event) => setTargetPrice(event.target.value)}
+                placeholder="e.g. 1200"
+                disabled={loading || submitting || !overrideTargetPrice}
+                style={{
+                  opacity: overrideTargetPrice ? 1 : 0.6,
+                  cursor: overrideTargetPrice ? "text" : "not-allowed",
+                }}
+              />
+            </div>
+            <p className="section-sub" style={{ margin: 0, fontSize: "0.85em", color: "var(--color-muted, #666)" }}>
+              Using target price set during product tracking. Rs. {selectedProduct.target_price}
+            </p>
+          </div>
+        ) : (
+          <label className="stack" htmlFor="alert-target-price">
+            <span>Alert target price</span>
+            <input
+              id="alert-target-price"
+              className="input"
+              value={targetPrice}
+              onChange={(event) => setTargetPrice(event.target.value)}
+              placeholder="e.g. 1200"
+              disabled={loading || submitting}
+            />
+          </label>
+        )}
 
         <div className="row">
           <button className="button" type="submit" disabled={loading || submitting}>
