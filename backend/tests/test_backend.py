@@ -110,7 +110,7 @@ def test_create_product_persists_without_live_price(monkeypatch):
         assert payload["name"] == "Fallback Product Name"
         assert payload["latest_price"] is None
         assert payload["price_available"] is False
-        assert payload["last_updated"] is None
+        assert payload["reason"] is None
     finally:
         _delete_product_by_asin(asin)
 
@@ -139,5 +139,83 @@ def test_refresh_returns_cached_entry_when_live_fetch_fails(monkeypatch):
         payload = refresh_response.json()
         assert payload["product_id"] == product_id
         assert payload["price"] == 1499.0
+    finally:
+        _delete_product_by_asin(asin)
+
+
+def test_product_recommendation_buy_now_includes_reason(monkeypatch):
+    asin = "B0BUYTEST1"
+    _delete_product_by_asin(asin)
+    db = SessionLocal()
+    try:
+        product = models.Product(
+            name="Deal Product",
+            asin=asin,
+            target_price=1000.0,
+        )
+        db.add(product)
+        db.commit()
+        db.refresh(product)
+
+        entry = models.PriceHistory(product_id=product.id, price=900.0)
+        db.add(entry)
+        db.commit()
+        product_id = product.id
+    finally:
+        db.close()
+
+    response = client.get(f"/products/{product_id}")
+
+    try:
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["recommendation"] == "BUY NOW - Good deal"
+        assert payload["reason"] == "Current price is 10.0% below your target price."
+    finally:
+        _delete_product_by_asin(asin)
+
+
+def test_product_recommendation_hold_when_within_ten_percent(monkeypatch):
+    asin = "B0HOLDTEST"
+    _delete_product_by_asin(asin)
+    monkeypatch.setattr(main, "get_product_data", lambda resolved_asin: {"title": "Close Product", "price": 1050.0})
+
+    response = client.post(
+        "/products",
+        json={
+            "product_name": "Close Product",
+            "target_price": 1000.0,
+            "asin": asin,
+        },
+    )
+
+    try:
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["recommendation"] == "HOLD - Price is close to your target"
+        assert payload["reason"] == "Current price is 5.0% above your target price."
+    finally:
+        _delete_product_by_asin(asin)
+
+
+def test_product_recommendation_wait_when_more_than_ten_percent_above(monkeypatch):
+    asin = "B0WAITTEST"
+    _delete_product_by_asin(asin)
+    monkeypatch.setattr(main, "get_product_data", lambda resolved_asin: {"title": "High Product", "price": 1200.0})
+
+    response = client.post(
+        "/products",
+        json={
+            "product_name": "High Product",
+            "target_price": 1000.0,
+            "asin": asin,
+        },
+    )
+
+    try:
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["recommendation"] == "WAIT - Price is too high"
+        assert payload["reason"] == "Current price is 20.0% above your target price."
     finally:
         _delete_product_by_asin(asin)

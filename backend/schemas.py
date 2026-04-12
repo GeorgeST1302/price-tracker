@@ -18,6 +18,7 @@ class ProductResponse(BaseModel):
     price_available: bool = False
     trend: str | None = None
     recommendation: str | None = None
+    reason: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

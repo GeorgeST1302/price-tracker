@@ -13,14 +13,14 @@ from sqlalchemy.orm import Session
 try:
     from .database import SessionLocal, engine, ensure_sqlite_schema
     from . import models, schemas
-    from .services.product_service import compute_recommendation, compute_trend, get_product_data, resolve_asin
+    from .services.product_service import compute_trend, get_product_data, resolve_asin
     from .services.scraper_service import search_amazon_products
     from .services.telegram_client import is_telegram_configured, send_triggered_alert
 except ImportError:
     from database import SessionLocal, engine, ensure_sqlite_schema
     import models
     import schemas
-    from services.product_service import compute_recommendation, compute_trend, get_product_data, resolve_asin
+    from services.product_service import compute_trend, get_product_data, resolve_asin
     from services.scraper_service import search_amazon_products
     from services.telegram_client import is_telegram_configured, send_triggered_alert
 
@@ -33,26 +33,37 @@ logger = logging.getLogger(__name__)
 ASIN_PATTERN = re.compile(r"^[A-Z0-9]{10}$")
 
 
-def _compute_deal_status(latest_price: float | None, target_price: float | None) -> str | None:
+def _compute_deal_status(latest_price: float | None, target_price: float | None) -> tuple[str | None, str | None]:
     if latest_price is None or target_price is None:
-        return None
+        return None, None
 
     try:
         latest = float(latest_price)
         target = float(target_price)
     except (TypeError, ValueError):
-        return None
+        return None, None
 
     if not (latest > 0 and target > 0):
-        return None
+        return None, None
+
+    pct_diff = ((latest - target) / target) * 100 if target else 0.0
 
     if latest <= target:
-        discount_ratio = (target - latest) / target if target else 0.0
-        if discount_ratio >= 0.10:
-            return "GOOD_DEAL"
-        return "BUY"
+        return (
+            "BUY NOW - Good deal",
+            f"Current price is {abs(pct_diff):.1f}% below your target price.",
+        )
 
-    return "ON_HOLD"
+    if latest <= target * 1.10:
+        return (
+            "HOLD - Price is close to your target",
+            f"Current price is {pct_diff:.1f}% above your target price.",
+        )
+
+    return (
+        "WAIT - Price is too high",
+        f"Current price is {pct_diff:.1f}% above your target price.",
+    )
 
 
 def _parse_cors_origins_from_env() -> list[str]:
@@ -152,8 +163,7 @@ def _attach_product_insights(db: Session, product: models.Product) -> models.Pro
         product.latest_price = prices[-1]
         product.price_available = True
         product.trend = compute_trend(prices)
-        deal_status = _compute_deal_status(product.latest_price, product.target_price)
-        product.recommendation = deal_status or compute_recommendation(prices)
+        product.recommendation, product.reason = _compute_deal_status(product.latest_price, product.target_price)
         # If last_updated wasn't set for legacy rows, infer from newest history.
         if not product.last_updated:
             newest = (
@@ -169,6 +179,7 @@ def _attach_product_insights(db: Session, product: models.Product) -> models.Pro
         product.price_available = False
         product.trend = None
         product.recommendation = None
+        product.reason = None
     return product
 
 
