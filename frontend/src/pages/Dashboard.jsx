@@ -117,7 +117,7 @@ function Dashboard() {
   ).length
 
   const avgDropPct = (() => {
-    const drops = insights.map((item) => item.dropPct).filter((value) => Number.isFinite(value) && value > 0)
+    const drops = insights.map((item) => item.dropPct).filter((value) => Number.isFinite(value))
     if (!drops.length) return 0
     return drops.reduce((sum, current) => sum + current, 0) / drops.length
   })()
