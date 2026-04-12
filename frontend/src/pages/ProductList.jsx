@@ -21,9 +21,10 @@ function formatDealStatus(value) {
   if (!value) return "-"
 
   const normalized = String(value).trim().toUpperCase().replace(/[\s-]+/g, "_")
+  if (normalized.startsWith("BUY")) return "BUY"
+  if (normalized.startsWith("HOLD") || normalized === "ON_HOLD" || normalized === "HOLD_ON") return "HOLD"
+  if (normalized.startsWith("WAIT")) return "WAIT"
   if (normalized === "GOOD_DEAL") return "Good deal"
-  if (normalized === "ON_HOLD" || normalized === "HOLD_ON" || normalized === "HOLD") return "On hold"
-  if (normalized === "BUY") return "Buy"
 
   return String(value)
 }
@@ -31,8 +32,9 @@ function formatDealStatus(value) {
 function dealStatusTone(value) {
   const normalized = String(value || "").trim().toUpperCase().replace(/[\s-]+/g, "_")
   if (normalized === "GOOD_DEAL") return "badge-good"
-  if (normalized === "BUY") return "badge-good"
-  if (normalized === "ON_HOLD" || normalized === "HOLD_ON" || normalized === "HOLD" || normalized === "WAIT") return "badge-warn"
+  if (normalized.startsWith("BUY")) return "badge-good"
+  if (normalized.startsWith("HOLD") || normalized === "ON_HOLD" || normalized === "HOLD_ON") return "badge-warn"
+  if (normalized.startsWith("WAIT")) return "badge-danger"
   return "badge-warn"
 }
 
