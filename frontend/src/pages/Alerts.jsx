@@ -152,14 +152,10 @@ function Alerts() {
         </div>
       </div>
 
-      {notificationStatus ? (
-        notificationStatus.telegram_configured ? (
-          <div className="notice notice-success">Telegram phone alerts are configured on the backend.</div>
-        ) : (
-          <div className="notice">
-            Telegram phone alerts are not configured yet. Set <code>TELEGRAM_BOT_TOKEN</code> and <code>TELEGRAM_CHAT_ID</code> on the backend to send alerts to your phone.
-          </div>
-        )
+      {notificationStatus && !notificationStatus.telegram_configured ? (
+        <div className="notice">
+          Telegram phone alerts are not configured yet. Set <code>TELEGRAM_BOT_TOKEN</code> and <code>TELEGRAM_CHAT_ID</code> on the backend to send alerts to your phone.
+        </div>
       ) : null}
 
       {error ? <div className="notice notice-error">Error: {error}</div> : null}
