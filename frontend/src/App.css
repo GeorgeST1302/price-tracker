@@ -16,6 +16,18 @@
   max-width: 420px;
 }
 
+.brand-logo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.brand-logo-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
 .eyebrow {
   margin: 0;
   font-size: 0.72rem;
@@ -26,9 +38,11 @@
 }
 
 .brand h1 {
-  margin: 6px 0;
-  font-size: clamp(2.5rem, 3vw, 3rem);
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
   letter-spacing: -0.01em;
+  color: #10b981;
 }
 
 .tagline {

@@ -15,7 +15,10 @@ function App() {
         <header className="topbar">
           <div className="brand">
             <p className="eyebrow">Price monitoring & alerting</p>
-            <h1>PricePulse</h1>
+            <div className="brand-logo" aria-label="PricePulse logo">
+              <span className="brand-logo-icon" aria-hidden="true">📉</span>
+              <h1>PricePulse</h1>
+            </div>
             <p className="tagline">Track the products you care about and get notified the moment the price drops below your target.</p>
           </div>
 
