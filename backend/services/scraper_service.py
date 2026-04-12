@@ -250,11 +250,15 @@ def search_amazon_products(search_term: str, limit: int = 6):
 
             results.append(
                 {
+                    "source_key": "amazon",
                     "asin": asin,
                     "title": title,
                     "image_url": _extract_mobile_card_image(card),
                     "price": _extract_mobile_card_price(card),
                     "seller": "Amazon Marketplace",
+                    "source": "Amazon India",
+                    "product_url": f"https://www.amazon.in/dp/{asin}",
+                    "trackable": True,
                 }
             )
             seen_asin.add(asin)

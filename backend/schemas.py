@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional
 
@@ -18,8 +18,7 @@ class ProductResponse(BaseModel):
     trend: str | None = None
     recommendation: str | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PriceHistoryResponse(BaseModel):
@@ -28,16 +27,19 @@ class PriceHistoryResponse(BaseModel):
     price: float
     timestamp: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProductSearchResult(BaseModel):
+    source_key: str | None = None
     asin: str
     title: str
     image_url: str | None = None
     price: float | None = None
     seller: str | None = None
+    source: str | None = None
+    product_url: str | None = None
+    trackable: bool = True
 
 
 class AlertCreate(BaseModel):
@@ -56,5 +58,4 @@ class AlertResponse(BaseModel):
     notification_sent_at: datetime | None = None
     notification_error: str | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

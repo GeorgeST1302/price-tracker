@@ -1,15 +1,16 @@
+const DEFAULT_PRODUCTION_API_BASE_URL = "https://price-tracker-backend-hxqx.onrender.com"
+
 export function getApiBaseUrl() {
   const fromEnv = import.meta.env.VITE_API_BASE_URL
-  if (fromEnv) return String(fromEnv).replace(/\/$/, "")
+  const normalizedFromEnv = String(fromEnv || "").trim().replace(/\/$/, "")
+  if (normalizedFromEnv) return normalizedFromEnv
 
   const host = window.location.hostname
   if (host === "localhost") return "http://localhost:8000"
   if (host === "127.0.0.1") return "http://127.0.0.1:8000"
 
-  // In production, explicitly require VITE_API_BASE_URL so the app points
-  // to the deployed backend instead of accidentally calling localhost.
-  console.warn("VITE_API_BASE_URL is not set; API calls may fail in production")
-  return ""
+  console.warn("VITE_API_BASE_URL is not set; falling back to the production backend URL")
+  return DEFAULT_PRODUCTION_API_BASE_URL
 }
 
 const DEFAULT_TIMEOUT_MS = 20000

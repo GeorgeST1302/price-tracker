@@ -1,6 +1,7 @@
 import os
 import importlib
 import re
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI, Depends, HTTPException, Query
@@ -57,20 +58,16 @@ def _parse_cors_origins_from_env() -> list[str]:
         return []
     return [origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()]
 
-# CORS: allow the Vite dev server to call the API from the browser.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_parse_cors_origins_from_env(),
-    # Vite may auto-increment ports (5173 -> 5174, etc.).
-    # Also allow Render static-site domains by default.
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://[a-z0-9-]+\.onrender\.com$",
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://[a-z0-9-]+(?:\.onrender\.com|\.pages\.dev)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# Dependency to get DB session
 def get_db():
     db = SessionLocal()
     try:
@@ -79,7 +76,6 @@ def get_db():
         db.close()
 
 
-# Root endpoint
 @app.api_route("/", methods=["GET", "HEAD"])
 def root():
     return {"message": "PricePulse API is running successfully"}
@@ -187,7 +183,6 @@ def _trigger_alert_if_needed(alert: models.Alert, product: models.Product, curre
     _notify_alert_if_possible(alert, product, current_price, db)
 
 
-# CREATE PRODUCT (NOW REAL DATA)
 @app.post("/products", response_model=schemas.ProductResponse)
 def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)):
     requested_asin = (product.asin or "").strip().upper()
@@ -247,7 +242,6 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
     return new_product
 
 
-# GET ALL PRODUCTS
 @app.get("/products", response_model=list[schemas.ProductResponse])
 def get_products(q: str | None = Query(default=None), db: Session = Depends(get_db)):
     query = db.query(models.Product)
@@ -263,7 +257,7 @@ def get_products(q: str | None = Query(default=None), db: Session = Depends(get_
 
 
 @app.get("/products/search", response_model=list[schemas.ProductSearchResult])
-def search_products(q: str = Query(min_length=2), limit: int = Query(default=6, ge=1, le=12)):
+def search_products(q: str = Query(min_length=2), limit: int = Query(default=9, ge=1, le=12)):
     return search_amazon_products(q, limit=limit)
 
 
@@ -276,7 +270,6 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
     return product
 
 
-# GET PRICE HISTORY FOR A PRODUCT
 @app.get("/products/{product_id}/history", response_model=list[schemas.PriceHistoryResponse])
 def get_product_history(
     product_id: int,
@@ -297,7 +290,6 @@ def get_product_history(
     return query.all()
 
 
-# MANUALLY REFRESH PRICE (SCRAPE NOW + STORE)
 @app.post("/products/{product_id}/refresh", response_model=schemas.PriceHistoryResponse)
 def refresh_product_price(product_id: int, db: Session = Depends(get_db)):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
@@ -439,104 +431,38 @@ def _record_prices_for_all_products():
         db.close()
 
 
-def _seed_default_products_if_empty():
-    """Seed a few demo products so first-time users see useful data immediately.
-
-    If the DB already has some products but fewer than 4, this will add
-    missing demo items (by ASIN) so the UI can demonstrate BUY/GOOD_DEAL/ON_HOLD.
-    """
-    db = SessionLocal()
-    try:
-        existing_count = db.query(models.Product).count()
-        if existing_count >= 4:
-            return
-
-        seed_products = [
-            # BUY: latest <= target (but started above target).
-            {
-                "name": "Apple iPhone 13 (128GB)",
-                "asin": "B09G9BL5CP",
-                "target_price": 52000.0,
-                "prices": [55999.0, 49999.0],
-            },
-            # GOOD_DEAL: latest <= target by >= 10%.
-            {
-                "name": "boAt Rockerz 450 Headphones",
-                "asin": "B08R6K8W7C",
-                "target_price": 1499.0,
-                "prices": [1999.0, 1199.0],
-            },
-        ]
-
-        for item in seed_products:
-            existing = db.query(models.Product).filter(models.Product.asin == item["asin"]).first()
-            if existing:
-                continue
-
-            product = models.Product(
-                name=item["name"],
-                asin=item["asin"],
-                target_price=item["target_price"],
-                last_updated=datetime.utcnow(),
-            )
-            db.add(product)
-            db.commit()
-            db.refresh(product)
-
-            for price in item["prices"]:
-                entry = models.PriceHistory(product_id=product.id, price=float(price))
-                db.add(entry)
-                db.commit()
-                product.last_updated = entry.timestamp
-                db.commit()
-    finally:
-        db.close()
-
-
-@app.on_event("startup")
-def _startup_scheduler():
-    """Optional scheduler to auto-track prices periodically.
-
-    Env vars:
-      - PRICEPULSE_ENABLE_SCHEDULER=1 (default: 1)
-      - PRICEPULSE_SCHEDULER_INTERVAL_MINUTES=60
-    """
+@asynccontextmanager
+async def _lifespan(app_instance: FastAPI):
+    scheduler = None
     enable = os.getenv("PRICEPULSE_ENABLE_SCHEDULER", "1") == "1"
 
-    # Populate sample data on first run for better first-time UX.
-    _seed_default_products_if_empty()
-
-    if not enable:
-        return
+    if enable:
+        try:
+            BackgroundScheduler = importlib.import_module(
+                "apscheduler.schedulers.background"
+            ).BackgroundScheduler
+            interval_minutes = int(os.getenv("PRICEPULSE_SCHEDULER_INTERVAL_MINUTES", "30"))
+            scheduler = BackgroundScheduler(daemon=True)
+            scheduler.add_job(
+                _record_prices_for_all_products,
+                "interval",
+                minutes=interval_minutes,
+                id="pricepulse_track_prices",
+                replace_existing=True,
+            )
+            scheduler.start()
+            app_instance.state.scheduler = scheduler
+        except Exception:
+            scheduler = None
 
     try:
-        BackgroundScheduler = importlib.import_module(
-            "apscheduler.schedulers.background"
-        ).BackgroundScheduler
-    except Exception:
-        # APScheduler not installed; skip silently to avoid breaking the app.
-        return
-
-    interval_minutes = int(os.getenv("PRICEPULSE_SCHEDULER_INTERVAL_MINUTES", "30"))
-    scheduler = BackgroundScheduler(daemon=True)
-    scheduler.add_job(
-        _record_prices_for_all_products,
-        "interval",
-        minutes=interval_minutes,
-        id="pricepulse_track_prices",
-        replace_existing=True,
-    )
-    scheduler.start()
-
-    # Store on app state so it can be shut down cleanly.
-    app.state.scheduler = scheduler
+        yield
+    finally:
+        if scheduler:
+            try:
+                scheduler.shutdown(wait=False)
+            except Exception:
+                pass
 
 
-@app.on_event("shutdown")
-def _shutdown_scheduler():
-    scheduler = getattr(app.state, "scheduler", None)
-    if scheduler:
-        try:
-            scheduler.shutdown(wait=False)
-        except Exception:
-            pass
+app.router.lifespan_context = _lifespan

@@ -79,7 +79,6 @@ def compute_recommendation(prices: list[float]) -> str | None:
 
 
 def get_product_data(asin: str):
-    # Try scraper first.
     data = fetch_amazon_price_scraper(asin)
 
     if data:
@@ -91,8 +90,7 @@ def get_product_data(asin: str):
     if data and isinstance(data, dict):
         return data
 
-    # Fallback if the scraper cannot get live data.
-    logger.warning("Scraper failed for ASIN=%s, using fallback", asin)
+    logger.warning("No live price source succeeded for ASIN=%s", asin)
     return fetch_amazon_price_api(asin)
 
 

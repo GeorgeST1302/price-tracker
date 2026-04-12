@@ -30,7 +30,7 @@ function AddProduct() {
       setSearchError(null)
 
       try {
-        const params = new URLSearchParams({ q: term, limit: "6" })
+        const params = new URLSearchParams({ q: term, limit: "9" })
         const data = await apiJson(`/products/search?${params.toString()}`, { timeoutMs: 15000 })
         if (cancelled) return
 
@@ -159,8 +159,9 @@ function AddProduct() {
                       />
                       <div className="live-card-body">
                         <p className="live-title">{item.title}</p>
-                        <p className="section-sub">Seller: {item.seller || "Marketplace seller"}</p>
+                        <p className="section-sub">{item.source || item.seller || "Marketplace"}</p>
                         <p className="live-price">{Number.isFinite(item.price) ? `Rs. ${item.price}` : "Price unavailable"}</p>
+                        {item.product_url ? <p className="section-sub">Product detail page available</p> : null}
                       </div>
                     </button>
                   )
@@ -186,7 +187,7 @@ function AddProduct() {
           <button className="button" type="submit" disabled={loading}>
             {loading ? "Adding..." : "Start Tracking"}
           </button>
-          <span className="section-sub">Set a target below today’s price to hunt for a deal.</span>
+          <span className="section-sub">Set a target below today's price to hunt for a deal.</span>
         </div>
       </form>
 
