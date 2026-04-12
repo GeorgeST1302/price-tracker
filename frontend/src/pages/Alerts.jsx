@@ -72,14 +72,20 @@ function Alerts() {
 
   // Auto-fill target price when product is selected
   useEffect(() => {
-    if (productId && selectedProduct?.target_price) {
-      setTargetPrice(String(selectedProduct.target_price))
-      setOverrideTargetPrice(false)
+    if (productId) {
+      const product = products.find((item) => Number(item.id) === Number(productId))
+      if (product?.target_price) {
+        setTargetPrice(String(product.target_price))
+        setOverrideTargetPrice(false)
+      } else {
+        setTargetPrice("")
+        setOverrideTargetPrice(false)
+      }
     } else {
       setTargetPrice("")
       setOverrideTargetPrice(false)
     }
-  }, [productId, selectedProduct])
+  }, [productId, products])
 
   async function handleCreate(event) {
     event.preventDefault()
