@@ -132,7 +132,6 @@ function Dashboard() {
           <h2>Pricing Intelligence Dashboard</h2>
           <p className="section-sub">Recommendations are computed from the last 5-10 price points and refreshed automatically on a schedule.</p>
         </div>
-        <span className="kbd">Live from your backend API</span>
       </div>
 
       {error ? <div className="notice notice-error">Error: {error}</div> : null}
@@ -164,9 +163,9 @@ function Dashboard() {
           {recentlyUpdated.length ? (
             <div className="card">
               <p className="section-sub">Recently updated</p>
-              <div className="row" style={{ marginTop: 8 }}>
+              <div className="dashboard-recent-list" style={{ marginTop: 8 }}>
                 {recentlyUpdated.map((product) => (
-                  <span key={product.id} className="badge badge-warn">
+                  <span key={product.id} className="dashboard-recent-item">
                     {product.name}
                   </span>
                 ))}
