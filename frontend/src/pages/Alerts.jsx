@@ -132,7 +132,6 @@ function Alerts() {
           <h2>Alerts</h2>
           <p className="section-sub">Create alerts now, then track both pending and triggered price drops here.</p>
         </div>
-        <span className="kbd">Auto-checked on scheduled updates</span>
       </div>
 
       {notificationStatus ? (

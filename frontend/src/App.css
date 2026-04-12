@@ -125,25 +125,39 @@
   align-items: center;
   gap: 6px;
   border-radius: 999px;
-  padding: 6px 10px;
-  font-size: 0.78rem;
-  font-weight: 700;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
   letter-spacing: 0.03em;
 }
 
+.target-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.status-buy,
 .badge-good {
-  background: #e7f8ed;
-  color: #14693f;
+  background: #dcfce7;
+  color: #166534;
 }
 
+.status-hold,
 .badge-warn {
-  background: #fff4df;
-  color: #8f6201;
+  background: #fef3c7;
+  color: #92400e;
 }
 
+.status-wait,
 .badge-danger {
-  background: #ffe7e6;
-  color: #ad2b2b;
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .stack {
@@ -292,12 +306,35 @@
 }
 
 .dashboard-recent-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #f8fafc;
   color: #1e293b;
+}
+
+.recently-updated-head {
+  justify-content: space-between;
+}
+
+.clear-button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #334155;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.clear-button-inline {
+  flex-shrink: 0;
 }
 
 .spinner {

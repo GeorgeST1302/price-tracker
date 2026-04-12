@@ -31,11 +31,10 @@ function formatDealStatus(value) {
 
 function dealStatusTone(value) {
   const normalized = String(value || "").trim().toUpperCase().replace(/[\s-]+/g, "_")
-  if (normalized === "GOOD_DEAL") return "badge-good"
-  if (normalized.startsWith("BUY")) return "badge-good"
-  if (normalized.startsWith("HOLD") || normalized === "ON_HOLD" || normalized === "HOLD_ON") return "badge-warn"
-  if (normalized.startsWith("WAIT")) return "badge-danger"
-  return "badge-warn"
+  if (normalized === "GOOD_DEAL" || normalized.startsWith("BUY")) return "status-buy"
+  if (normalized.startsWith("HOLD") || normalized === "ON_HOLD" || normalized === "HOLD_ON") return "status-hold"
+  if (normalized.startsWith("WAIT")) return "status-wait"
+  return "status-hold"
 }
 
 function ProductList() {
@@ -188,7 +187,7 @@ function ProductList() {
             <article className="card" key={product.id}>
               <div className="row">
                 <h3>{product.name}</h3>
-                <span className="badge badge-warn">Target Rs. {product.target_price}</span>
+                <span className="target-badge">Target {formatCurrency(product.target_price)}</span>
               </div>
               <p className="section-sub">Added: {new Date(product.created_at).toLocaleDateString()}</p>
               <p className="section-sub">Last updated: {product.last_updated ? getRelativeTimeLabel(product.last_updated) : "-"}</p>

@@ -17,11 +17,10 @@ function formatDealStatus(value) {
 
 function dealStatusTone(value) {
   const normalized = String(value || "").trim().toUpperCase().replace(/[\s-]+/g, "_")
-  if (normalized === "GOOD_DEAL") return "badge-good"
-  if (normalized.startsWith("BUY")) return "badge-good"
-  if (normalized.startsWith("HOLD") || normalized === "ON_HOLD" || normalized === "HOLD_ON") return "badge-warn"
-  if (normalized.startsWith("WAIT")) return "badge-danger"
-  return "badge-warn"
+  if (normalized === "GOOD_DEAL" || normalized.startsWith("BUY")) return "status-buy"
+  if (normalized.startsWith("HOLD") || normalized === "ON_HOLD" || normalized === "HOLD_ON") return "status-hold"
+  if (normalized.startsWith("WAIT")) return "status-wait"
+  return "status-hold"
 }
 
 function Dashboard() {
@@ -30,6 +29,7 @@ function Dashboard() {
   const [products, setProducts] = useState([])
   const [insights, setInsights] = useState([])
   const [deletingId, setDeletingId] = useState(null)
+  const [hiddenRecentIds, setHiddenRecentIds] = useState([])
 
   const loadDashboard = useCallback(async () => {
     setLoading(true)
@@ -125,6 +125,7 @@ function Dashboard() {
   const recentlyUpdated = [...products]
     .filter((product) => product.last_updated)
     .sort((a, b) => new Date(b.last_updated).getTime() - new Date(a.last_updated).getTime())
+    .filter((product) => !hiddenRecentIds.includes(product.id))
     .slice(0, 5)
 
   return (
@@ -164,12 +165,20 @@ function Dashboard() {
         <div className="stack">
           {recentlyUpdated.length ? (
             <div className="card">
-              <p className="section-sub">Recently updated</p>
+              <div className="row recently-updated-head">
+                <p className="section-sub">Recently updated</p>
+                <button className="clear-button" type="button" onClick={() => setHiddenRecentIds(recentlyUpdated.map((product) => product.id))}>
+                  Clear
+                </button>
+              </div>
               <div className="dashboard-recent-list" style={{ marginTop: 8 }}>
                 {recentlyUpdated.map((product) => (
-                  <span key={product.id} className="dashboard-recent-item">
-                    {product.name}
-                  </span>
+                  <div key={product.id} className="dashboard-recent-item">
+                    <span>{product.name}</span>
+                    <button className="clear-button clear-button-inline" type="button" onClick={() => setHiddenRecentIds((current) => [...current, product.id])}>
+                      Remove
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -184,7 +193,7 @@ function Dashboard() {
               <p className="section-sub">Trend: {product.trend || "-"} | Auto-updated via scheduler</p>
               {!priceAvailable && priceMessage ? <p className="section-sub">{priceMessage}</p> : null}
               <div className="row" style={{ marginTop: 10 }}>
-                <span>Target: {formatCurrency(product.target_price)}</span>
+                <span className="target-badge">Target: {formatCurrency(product.target_price)}</span>
                 <span>Latest: {priceAvailable && Number.isFinite(latest) ? formatCurrency(latest) : "Unavailable"}</span>
                 <span>Points: {points}</span>
                 <span>Gap: {Number.isFinite(gap) ? (gap > 0 ? `+Rs. ${gap.toFixed(2)}` : `Rs. ${gap.toFixed(2)}`) : "N/A"}</span>
