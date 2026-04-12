@@ -20,15 +20,23 @@ def is_telegram_configured() -> bool:
     return bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
 
 
-def _build_message(product_name: str, current_price: float, target_price: float, product_id: int) -> str:
+def _build_message(
+    *,
+    product_name: str,
+    current_price: float,
+    target_price: float,
+    recommendation: str,
+    reason: str | None,
+) -> str:
+    title = recommendation.strip() if recommendation else "PricePulse alert"
+    detail = (reason or "").strip()
     return (
-        "PricePulse alert\n\n"
+        f"{title}\n\n"
         f"Product: {product_name}\n"
-        f"Current price: Rs. {current_price:.2f}\n"
-        f"Your target: Rs. {target_price:.2f}\n"
-        f"Product ID: {product_id}\n\n"
-        "A tracked product has reached your target price."
-    )
+        f"Current Price: Rs. {current_price:.2f}\n"
+        f"Target Price: Rs. {target_price:.2f}\n\n"
+        f"{detail}"
+    ).strip()
 
 
 def _safe_error_from_response(response: requests.Response) -> str:
@@ -52,7 +60,15 @@ def _safe_error_from_response(response: requests.Response) -> str:
     return f"Telegram request failed with status {status_code}."
 
 
-def send_triggered_alert(*, product_name: str, current_price: float, target_price: float, product_id: int) -> tuple[bool, str | None]:
+def send_triggered_alert(
+    *,
+    product_name: str,
+    current_price: float,
+    target_price: float,
+    product_id: int,
+    recommendation: str,
+    reason: str | None,
+) -> tuple[bool, str | None]:
     if not is_telegram_configured():
         return False, "Telegram is not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID."
 
@@ -60,7 +76,8 @@ def send_triggered_alert(*, product_name: str, current_price: float, target_pric
         product_name=product_name,
         current_price=float(current_price),
         target_price=float(target_price),
-        product_id=int(product_id),
+        recommendation=recommendation,
+        reason=reason,
     )
 
     last_error = None

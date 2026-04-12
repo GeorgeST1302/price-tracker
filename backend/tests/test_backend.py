@@ -4,6 +4,7 @@ from backend import main
 from backend import models
 from backend.database import SessionLocal
 from backend.services import product_service
+from backend.services import telegram_client
 
 
 client = TestClient(main.app)
@@ -217,5 +218,61 @@ def test_product_recommendation_wait_when_more_than_ten_percent_above(monkeypatc
         payload = response.json()
         assert payload["recommendation"] == "WAIT - Price is too high"
         assert payload["reason"] == "Current price is 20.0% above your target price."
+    finally:
+        _delete_product_by_asin(asin)
+
+
+def test_telegram_message_for_buy_is_clear():
+    message = telegram_client._build_message(
+        product_name="Test Product",
+        current_price=400.0,
+        target_price=500.0,
+        recommendation="🟢 BUY NOW",
+        reason="Price is significantly below your target.",
+    )
+
+    assert message == (
+        "🟢 BUY NOW\n\n"
+        "Product: Test Product\n"
+        "Current Price: Rs. 400.00\n"
+        "Target Price: Rs. 500.00\n\n"
+        "Price is significantly below your target."
+    )
+
+
+def test_hold_alert_triggers_when_price_is_near_target(monkeypatch):
+    asin = "B0ALRTHOLD"
+    _delete_product_by_asin(asin)
+    monkeypatch.setattr(main, "get_product_data", lambda resolved_asin: {"title": "Hold Alert Product", "price": 1050.0})
+    monkeypatch.setattr(
+        main,
+        "send_triggered_alert",
+        lambda **kwargs: (True, None),
+    )
+
+    create_response = client.post(
+        "/products",
+        json={
+            "product_name": "Hold Alert Product",
+            "target_price": 1000.0,
+            "asin": asin,
+        },
+    )
+    assert create_response.status_code == 200
+    product_id = create_response.json()["id"]
+
+    alert_response = client.post(
+        "/alerts",
+        json={
+            "product_id": product_id,
+            "target_price": 1000.0,
+        },
+    )
+
+    try:
+        assert alert_response.status_code == 200
+        payload = alert_response.json()
+        assert payload["triggered_flag"] is True
+        assert payload["notification_sent_flag"] is True
     finally:
         _delete_product_by_asin(asin)

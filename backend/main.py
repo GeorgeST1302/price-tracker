@@ -196,11 +196,17 @@ def _notify_alert_if_possible(alert: models.Alert, product: models.Product, curr
     if alert.notification_sent_flag:
         return
 
+    recommendation, reason = _compute_deal_status(current_price, alert.target_price)
+    if recommendation is None:
+        return
+
     sent, error_message = send_triggered_alert(
         product_name=product.name,
         current_price=float(current_price),
         target_price=float(alert.target_price),
         product_id=product.id,
+        recommendation=recommendation,
+        reason=reason,
     )
     alert.notification_sent_flag = bool(sent)
     alert.notification_sent_at = datetime.utcnow() if sent else None
@@ -214,7 +220,8 @@ def _trigger_alert_if_needed(alert: models.Alert, product: models.Product, curre
             _notify_alert_if_possible(alert, product, current_price, db)
         return
 
-    if current_price > float(alert.target_price):
+    recommendation, _reason = _compute_deal_status(current_price, alert.target_price)
+    if recommendation is None or recommendation.startswith("WAIT"):
         return
 
     alert.triggered_flag = True
