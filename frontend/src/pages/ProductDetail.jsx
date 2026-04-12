@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import Chart from "chart.js/auto"
 
 import { apiJson } from "../lib/apiBaseUrl"
+import { formatCurrency, getPriceAvailabilityMessage, hasAvailablePrice } from "../lib/productState"
 
 function ProductDetail() {
   const [products, setProducts] = useState([])
@@ -11,6 +12,7 @@ function ProductDetail() {
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
+  const [infoMessage, setInfoMessage] = useState(null)
 
   const chartRef = useRef(null)
   const canvasRef = useRef(null)
@@ -113,9 +115,18 @@ function ProductDetail() {
 
     setRefreshing(true)
     setError(null)
+    setInfoMessage(null)
 
     try {
-      await apiJson(`/products/${selectedProductId}/refresh`, { method: "POST" })
+      const previousTimestamp = history[0]?.timestamp || null
+      const refreshedEntry = await apiJson(`/products/${selectedProductId}/refresh`, { method: "POST" })
+      if (previousTimestamp && refreshedEntry?.timestamp === previousTimestamp) {
+        setInfoMessage("Live price unavailable. Showing last known value.")
+      } else {
+        setInfoMessage("Refresh completed")
+      }
+      const productsData = await apiJson("/products")
+      setProducts(Array.isArray(productsData) ? productsData : [])
       await loadHistory(selectedProductId)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -126,6 +137,12 @@ function ProductDetail() {
 
   const selectedProduct = products.find((product) => String(product.id) === String(selectedProductId))
   const latestPrice = history[0]?.price
+  const priceAvailabilityMessage = selectedProduct
+    ? getPriceAvailabilityMessage(selectedProduct, {
+        hasHistory: history.length > 0,
+        showingCachedValue: infoMessage === "Live price unavailable. Showing last known value.",
+      })
+    : null
   const isDropped =
     selectedProduct && Number.isFinite(Number(latestPrice)) && Number(latestPrice) <= Number(selectedProduct.target_price)
 
@@ -150,6 +167,7 @@ function ProductDetail() {
       </div>
 
       {error ? <div className="notice notice-error">Error: {error}</div> : null}
+      {infoMessage ? <div className="notice">{infoMessage}</div> : null}
 
       {loading ? (
         <div className="row">
@@ -166,12 +184,13 @@ function ProductDetail() {
               id="detail-select"
               className="select"
               value={selectedProductId}
-              onChange={async (event) => {
-                const nextId = event.target.value
-                setSelectedProductId(nextId)
-                setHistory([])
-                if (nextId) await loadHistory(nextId)
-              }}
+            onChange={async (event) => {
+              const nextId = event.target.value
+              setSelectedProductId(nextId)
+              setHistory([])
+              setInfoMessage(null)
+              if (nextId) await loadHistory(nextId)
+            }}
             >
               <option value="">Select...</option>
               {products.map((product) => (
@@ -192,10 +211,11 @@ function ProductDetail() {
         <div className="card stack">
           <h3>{selectedProduct.name}</h3>
           <div className="row">
-            <span>Target: Rs. {selectedProduct.target_price}</span>
-            <span>Latest: {Number.isFinite(Number(latestPrice)) ? `Rs. ${latestPrice}` : "N/A"}</span>
+            <span>Target: {formatCurrency(selectedProduct.target_price)}</span>
+            <span>Latest: {hasAvailablePrice(selectedProduct) && Number.isFinite(Number(latestPrice)) ? formatCurrency(latestPrice) : "Unavailable"}</span>
             {isDropped ? <span className="badge badge-good">Price dropped!</span> : null}
           </div>
+          {priceAvailabilityMessage ? <p className="section-sub">{priceAvailabilityMessage}</p> : null}
           <p className="section-sub">Last updated: {selectedProduct.last_updated ? new Date(selectedProduct.last_updated).toLocaleString() : "-"}</p>
           <p className="section-sub">Status: {recommendationLabel} | Trend: {selectedProduct.trend || "-"}</p>
         </div>

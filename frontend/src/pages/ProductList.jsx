@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 
 import { apiJson, apiRequest } from "../lib/apiBaseUrl"
+import { formatCurrency, getPriceAvailabilityMessage, hasAvailablePrice } from "../lib/productState"
 
 function getRelativeTimeLabel(isoDate) {
   const ms = Date.now() - new Date(isoDate).getTime()
@@ -189,9 +190,12 @@ function ProductList() {
               </div>
               <p className="section-sub">Added: {new Date(product.created_at).toLocaleDateString()}</p>
               <p className="section-sub">Last updated: {product.last_updated ? getRelativeTimeLabel(product.last_updated) : "-"}</p>
+              {!hasAvailablePrice(product) ? (
+                <p className="section-sub">{getPriceAvailabilityMessage(product)}</p>
+              ) : null}
               <div className="row" style={{ marginTop: 10 }}>
                 <span className="section-sub">
-                  Latest: {Number.isFinite(Number(product.latest_price)) ? `Rs. ${Number(product.latest_price)}` : "N/A"}
+                  Latest: {hasAvailablePrice(product) ? formatCurrency(product.latest_price) : "Unavailable"}
                 </span>
                 <span className={`badge ${dealStatusTone(product.recommendation)}`}>
                   {formatDealStatus(product.recommendation)}

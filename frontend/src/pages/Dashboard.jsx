@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 
 import { apiJson, apiRequest } from "../lib/apiBaseUrl"
+import { formatCurrency, getPriceAvailabilityMessage, hasAvailablePrice } from "../lib/productState"
 
 function formatDealStatus(value) {
   if (!value) return "-"
@@ -69,6 +70,8 @@ function Dashboard() {
           latest,
           points: history.length,
           gap,
+          priceAvailable: hasAvailablePrice(product),
+          priceMessage: getPriceAvailabilityMessage(product, { hasHistory: history.length > 0 }),
           dropPct,
           recommendation: { label: recommendation, tone },
         }
@@ -171,16 +174,17 @@ function Dashboard() {
             </div>
           ) : null}
 
-          {insights.map(({ product, latest, points, gap, recommendation }) => (
+          {insights.map(({ product, latest, points, gap, recommendation, priceAvailable, priceMessage }) => (
             <article className="card" key={product.id}>
               <div className="row">
                 <h3>{product.name}</h3>
                 <span className={`badge ${recommendation.tone}`}>{recommendation.label}</span>
               </div>
               <p className="section-sub">Trend: {product.trend || "-"} | Auto-updated via scheduler</p>
+              {!priceAvailable && priceMessage ? <p className="section-sub">{priceMessage}</p> : null}
               <div className="row" style={{ marginTop: 10 }}>
-                <span>Target: Rs. {product.target_price}</span>
-                <span>Latest: {Number.isFinite(latest) ? `Rs. ${latest}` : "N/A"}</span>
+                <span>Target: {formatCurrency(product.target_price)}</span>
+                <span>Latest: {priceAvailable && Number.isFinite(latest) ? formatCurrency(latest) : "Unavailable"}</span>
                 <span>Points: {points}</span>
                 <span>Gap: {Number.isFinite(gap) ? (gap > 0 ? `+Rs. ${gap.toFixed(2)}` : `Rs. ${gap.toFixed(2)}`) : "N/A"}</span>
                 <button className="button" type="button" disabled={deletingId === product.id} onClick={() => handleDelete(product.id)}>

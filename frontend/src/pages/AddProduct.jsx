@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 
 import { apiJson } from "../lib/apiBaseUrl"
+import { hasAvailablePrice } from "../lib/productState"
 
 function AddProduct() {
   const [productName, setProductName] = useState("")
@@ -137,7 +138,7 @@ function AddProduct() {
             ) : searchError ? (
               <div className="notice notice-error">Error: {searchError}</div>
             ) : searchResults.length === 0 ? (
-              <p className="section-sub">No live results yet. Try a more specific name.</p>
+              <p className="section-sub">Live search unavailable or no results. You can still track manually.</p>
             ) : (
               <div className="live-grid">
                 {searchResults.map((item) => {
@@ -196,6 +197,7 @@ function AddProduct() {
       {created ? (
         <div className="notice notice-success">
           Added <b>{created.name}</b> | Target: Rs. {created.target_price}
+          {!hasAvailablePrice(created) ? " | Price unavailable right now, tracking will continue in the background." : ""}
         </div>
       ) : null}
     </section>

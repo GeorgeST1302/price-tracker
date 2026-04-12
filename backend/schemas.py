@@ -15,6 +15,7 @@ class ProductResponse(BaseModel):
     created_at: datetime
     last_updated: datetime | None = None
     latest_price: float | None = None
+    price_available: bool = False
     trend: str | None = None
     recommendation: str | None = None
 

@@ -79,19 +79,31 @@ def compute_recommendation(prices: list[float]) -> str | None:
 
 
 def get_product_data(asin: str):
-    data = fetch_amazon_price_scraper(asin)
+    try:
+        data = fetch_amazon_price_scraper(asin)
+    except Exception as exc:
+        logger.exception("Direct scraper raised for ASIN=%s: %s", asin, exc)
+        data = None
 
     if data:
         logger.info("Scraper success for ASIN=%s", asin)
         return data
 
     logger.info("Direct scraper failed for ASIN=%s, trying Zyte", asin)
-    data = fetch_price_from_zyte(asin)
+    try:
+        data = fetch_price_from_zyte(asin)
+    except Exception as exc:
+        logger.exception("Zyte fetch raised for ASIN=%s: %s", asin, exc)
+        data = None
     if data and isinstance(data, dict):
         return data
 
     logger.warning("No live price source succeeded for ASIN=%s", asin)
-    return fetch_amazon_price_api(asin)
+    try:
+        return fetch_amazon_price_api(asin)
+    except Exception as exc:
+        logger.exception("Fallback API raised for ASIN=%s: %s", asin, exc)
+        return None
 
 
 def resolve_asin(product_name: str | None = None):

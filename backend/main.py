@@ -1,5 +1,6 @@
 import os
 import importlib
+import logging
 import re
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -28,6 +29,8 @@ models.Base.metadata.create_all(bind=engine)
 ensure_sqlite_schema()
 
 app = FastAPI(title="PricePulse API")
+logger = logging.getLogger(__name__)
+ASIN_PATTERN = re.compile(r"^[A-Z0-9]{10}$")
 
 
 def _compute_deal_status(latest_price: float | None, target_price: float | None) -> str | None:
@@ -57,6 +60,30 @@ def _parse_cors_origins_from_env() -> list[str]:
     if not raw.strip():
         return []
     return [origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()]
+
+
+def _normalize_requested_asin(raw_asin: str | None) -> str | None:
+    asin = (raw_asin or "").strip().upper()
+    if not asin:
+        return None
+    if not ASIN_PATTERN.fullmatch(asin):
+        raise HTTPException(status_code=400, detail="Invalid ASIN. Expected 10 uppercase letters or digits.")
+    return asin
+
+
+def _coerce_numeric_price(value) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_product_name(requested_name: str, product_data: dict | None, asin: str) -> str:
+    title = ((product_data or {}).get("title") or "").strip()
+    fallback = (requested_name or "").strip()
+    return title or fallback or f"Amazon Product {asin}"
 
 app.add_middleware(
     CORSMiddleware,
@@ -123,6 +150,7 @@ def _attach_product_insights(db: Session, product: models.Product) -> models.Pro
     prices = _get_recent_prices(db, product.id, limit=10)
     if prices:
         product.latest_price = prices[-1]
+        product.price_available = True
         product.trend = compute_trend(prices)
         deal_status = _compute_deal_status(product.latest_price, product.target_price)
         product.recommendation = deal_status or compute_recommendation(prices)
@@ -138,6 +166,7 @@ def _attach_product_insights(db: Session, product: models.Product) -> models.Pro
                 product.last_updated = newest.timestamp
     else:
         product.latest_price = None
+        product.price_available = False
         product.trend = None
         product.recommendation = None
     return product
@@ -185,8 +214,8 @@ def _trigger_alert_if_needed(alert: models.Alert, product: models.Product, curre
 
 @app.post("/products", response_model=schemas.ProductResponse)
 def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)):
-    requested_asin = (product.asin or "").strip().upper()
-    resolved_asin = requested_asin if re.fullmatch(r"[A-Z0-9]{10}", requested_asin) else None
+    requested_asin = _normalize_requested_asin(product.asin)
+    resolved_asin = requested_asin
     if not resolved_asin:
         resolved_asin = resolve_asin(product.product_name)
     if not resolved_asin:
@@ -194,33 +223,32 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
             status_code=400,
             detail="Could not find a matching product on Amazon for that product name",
         )
+    if not ASIN_PATTERN.fullmatch(resolved_asin):
+        raise HTTPException(
+            status_code=400,
+            detail="Could not resolve a valid Amazon ASIN for that product",
+        )
 
     existing = db.query(models.Product).filter(models.Product.asin == resolved_asin).first()
     if existing:
         raise HTTPException(status_code=409, detail="Product already tracked")
 
     # 🔥 Fetch real data (scraper or fallback)
-    product_data = get_product_data(resolved_asin)
-    if not product_data or "title" not in product_data or "price" not in product_data:
-        raise HTTPException(status_code=502, detail="Failed to fetch product details from Amazon")
-
-    try:
-        live_price = float(product_data["price"])
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=502, detail="Failed to fetch a numeric price from Amazon")
+    product_data = get_product_data(resolved_asin) or {}
+    live_price = _coerce_numeric_price(product_data.get("price"))
 
     requested_target = float(product.target_price)
-    if requested_target >= live_price:
+    if live_price is not None and requested_target >= live_price:
         raise HTTPException(
             status_code=400,
             detail=f"Target price must be lower than the current price (current: Rs. {live_price:.2f}).",
         )
 
     new_product = models.Product(
-        name=product_data["title"],
+        name=_build_product_name(product.product_name, product_data, resolved_asin),
         asin=resolved_asin,
         target_price=product.target_price,
-        last_updated=datetime.utcnow(),
+        last_updated=datetime.utcnow() if live_price is not None else None,
     )
 
     db.add(new_product)
@@ -228,14 +256,17 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
     db.refresh(new_product)
 
     # 🔥 Store first price entry
-    price_entry = models.PriceHistory(
-        product_id=new_product.id,
-        price=live_price
-    )
+    if live_price is not None:
+        price_entry = models.PriceHistory(
+            product_id=new_product.id,
+            price=live_price
+        )
 
-    db.add(price_entry)
-    new_product.last_updated = price_entry.timestamp
-    db.commit()
+        db.add(price_entry)
+        new_product.last_updated = price_entry.timestamp
+        db.commit()
+    else:
+        logger.warning("Created product id=%s asin=%s without live price data", new_product.id, resolved_asin)
 
     _attach_product_insights(db, new_product)
 
@@ -296,15 +327,20 @@ def refresh_product_price(product_id: int, db: Session = Depends(get_db)):
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    product_data = get_product_data(product.asin)
-    if not product_data or "price" not in product_data:
-        raise HTTPException(status_code=502, detail="Failed to fetch price")
+    product_data = get_product_data(product.asin) or {}
+    live_price = _coerce_numeric_price(product_data.get("price"))
+    if live_price is None:
+        latest_entry = _get_latest_price_entry(db, product.id)
+        if latest_entry:
+            logger.warning("Refresh degraded to cached price for product id=%s asin=%s", product.id, product.asin)
+            return latest_entry
+        raise HTTPException(status_code=503, detail="Live price is currently unavailable and no cached price exists")
 
     # Keep name in sync if scraper returns it.
     if product_data.get("title"):
         product.name = product_data["title"]
 
-    price_entry = models.PriceHistory(product_id=product.id, price=float(product_data["price"]))
+    price_entry = models.PriceHistory(product_id=product.id, price=live_price)
     db.add(price_entry)
     product.last_updated = price_entry.timestamp
     db.commit()

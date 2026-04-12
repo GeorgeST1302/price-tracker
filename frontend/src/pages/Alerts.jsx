@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 
 import { apiJson } from "../lib/apiBaseUrl"
+import { hasAvailablePrice } from "../lib/productState"
 
 function formatDeliveryNote(note) {
   if (!note) return null
@@ -122,6 +123,7 @@ function Alerts() {
   const byProductId = useMemo(() => new Map(products.map((product) => [Number(product.id), product])), [products])
   const pendingAlerts = alerts.filter((alert) => !alert.triggered_flag)
   const triggeredAlerts = alerts.filter((alert) => alert.triggered_flag)
+  const selectedProduct = products.find((item) => Number(item.id) === Number(productId))
 
   return (
     <section className="stack">
@@ -184,6 +186,10 @@ function Alerts() {
             {submitting ? "Creating..." : "Create Alert"}
           </button>
         </div>
+
+        {selectedProduct && !hasAvailablePrice(selectedProduct) ? (
+          <p className="section-sub">Current price unavailable. Alert will still be created.</p>
+        ) : null}
       </form>
 
       {loading ? (

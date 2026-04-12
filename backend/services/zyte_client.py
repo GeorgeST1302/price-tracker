@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 ZYTE_API_TOKEN = os.getenv("ZYTE_API_TOKEN")
 ZYTE_PROJECT_ID = os.getenv("ZYTE_PROJECT_ID")
-ZYTE_JOB_ID = os.getenv("ZYTE_JOB_ID")
+ZYTE_SPIDER = os.getenv("ZYTE_SPIDER") or os.getenv("ZYTE_SPIDER_NAME") or os.getenv("ZYTE_JOB_ID")
 ZYTE_API_HOST = os.getenv("ZYTE_API_HOST", "https://app.zyte.com")
 ZYTE_STORAGE_HOST = os.getenv("ZYTE_STORAGE_HOST", "https://storage.zyte.com")
 
@@ -22,12 +22,12 @@ class ZyteConfigError(RuntimeError):
 def _require_config():
     if not ZYTE_API_TOKEN:
         raise ZyteConfigError("set ZYTE_API_TOKEN to trigger Zyte jobs")
-    if not ZYTE_PROJECT_ID or not ZYTE_JOB_ID:
-        raise ZyteConfigError("set ZYTE_PROJECT_ID and ZYTE_JOB_ID for Zyte runs")
+    if not ZYTE_PROJECT_ID or not ZYTE_SPIDER:
+        raise ZyteConfigError("set ZYTE_PROJECT_ID and ZYTE_SPIDER for Zyte runs")
     return {
         "token": ZYTE_API_TOKEN,
         "project": ZYTE_PROJECT_ID,
-        "spider": ZYTE_JOB_ID,
+        "spider": ZYTE_SPIDER,
     }
 
 
@@ -98,61 +98,71 @@ def fetch_price_from_zyte(asin: str, timeout: int = 45):
         "asin": asin,
     }
 
-    logger.info("Triggering Zyte run for ASIN=%s", asin)
-    response = requests.post(_run_url(), headers=headers, data=payload, timeout=15)
-    response.raise_for_status()
-    run_data = response.json()
+    try:
+        logger.info("Triggering Zyte run for ASIN=%s", asin)
+        response = requests.post(_run_url(), headers=headers, data=payload, timeout=15)
+        response.raise_for_status()
+        run_data = response.json()
 
-    job_key = run_data.get("jobid")
-    if not job_key:
-        logger.error("Zyte run response missing jobid: %s", run_data)
-        return None
-
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        poll = requests.get(
-            _jobs_url(),
-            headers=headers,
-            params={"project": config["project"], "job": job_key},
-            timeout=15,
-        )
-        poll.raise_for_status()
-        status_data = poll.json()
-        jobs = status_data.get("jobs") or []
-        if not jobs:
-            logger.info("Zyte job %s not visible yet, waiting", job_key)
-            time.sleep(3)
-            continue
-
-        job = jobs[0]
-        state = str(job.get("state") or "").lower()
-        close_reason = str(job.get("close_reason") or "").lower()
-
-        if state == "finished" or close_reason == "finished":
-            logger.info("Zyte run %s finished", job_key)
-            items_response = requests.get(
-                _items_url(job_key),
-                headers=headers,
-                params={"format": "json"},
-                timeout=15,
-            )
-            items_response.raise_for_status()
-
-            try:
-                items_payload = items_response.json()
-            except json.JSONDecodeError:
-                logger.error("Zyte items response was not JSON for job %s", job_key)
-                return None
-
-            item = _extract_output_item(items_payload)
-            return _normalize_output_item(item, asin)
-
-        if state in {"deleted"} or close_reason in {"cancelled", "finished_without_items"}:
-            logger.error("Zyte job %s ended without usable data: %s", job_key, job)
+        job_key = run_data.get("jobid")
+        if not job_key:
+            logger.error("Zyte run response missing jobid: %s", run_data)
             return None
 
-        logger.info("Zyte run %s pending (%s/%s), waiting", job_key, state, close_reason)
-        time.sleep(3)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            poll = requests.get(
+                _jobs_url(),
+                headers=headers,
+                params={"project": config["project"], "job": job_key},
+                timeout=15,
+            )
+            poll.raise_for_status()
+            status_data = poll.json()
+            jobs = status_data.get("jobs") or []
+            if not jobs:
+                logger.info("Zyte job %s not visible yet, waiting", job_key)
+                time.sleep(3)
+                continue
 
-    logger.warning("Zyte run %s timed out after %s seconds", job_key, timeout)
-    return None
+            job = jobs[0]
+            state = str(job.get("state") or "").lower()
+            close_reason = str(job.get("close_reason") or "").lower()
+
+            if state == "finished" or close_reason == "finished":
+                logger.info("Zyte run %s finished", job_key)
+                items_response = requests.get(
+                    _items_url(job_key),
+                    headers=headers,
+                    params={"format": "json"},
+                    timeout=15,
+                )
+                items_response.raise_for_status()
+
+                try:
+                    items_payload = items_response.json()
+                except json.JSONDecodeError:
+                    logger.error("Zyte items response was not JSON for job %s", job_key)
+                    return None
+
+                item = _extract_output_item(items_payload)
+                normalized = _normalize_output_item(item, asin)
+                if not normalized:
+                    logger.warning("Zyte job %s returned no usable items for ASIN=%s", job_key, asin)
+                return normalized
+
+            if state in {"deleted", "failed"} or close_reason in {"cancelled", "failed", "finished_without_items"}:
+                logger.error("Zyte job %s ended without usable data: %s", job_key, job)
+                return None
+
+            logger.info("Zyte run %s pending (%s/%s), waiting", job_key, state, close_reason)
+            time.sleep(3)
+
+        logger.warning("Zyte run %s timed out after %s seconds", job_key, timeout)
+        return None
+    except requests.RequestException as exc:
+        logger.warning("Zyte request failed for ASIN=%s: %s", asin, exc)
+        return None
+    except Exception as exc:
+        logger.exception("Unexpected Zyte failure for ASIN=%s: %s", asin, exc)
+        return None
