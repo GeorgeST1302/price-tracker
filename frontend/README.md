@@ -41,3 +41,15 @@ The app uses `HashRouter` so deep links work on static hosting without extra rew
 Example URLs:
 - `https://your-frontend.onrender.com/#/`
 - `https://your-frontend.onrender.com/#/products`
+
+## 5) Using a private GitHub repository
+
+This frontend can be deployed from a private repository.
+
+Checklist:
+- In Render account settings, ensure GitHub is connected with access to your private repository.
+- Confirm the Static Site service points to the correct private repository and branch.
+- Keep `VITE_API_BASE_URL` set in Render environment variables.
+- Run a manual deploy once after switching the repository from public to private.
+
+If deploys stop after visibility changes, reconnect the GitHub integration in Render and redeploy.

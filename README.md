@@ -78,6 +78,20 @@ VITE_API_BASE_URL=<your-backend-url>
 CORS_ORIGINS=https://your-frontend-domain.com
 ```
 
+## Private Repository Setup (Render)
+
+This project works with a private GitHub repository.
+
+1. Keep the repository visibility set to Private in GitHub.
+2. In Render, open Account Settings -> GitHub and confirm Render has access to this private repository.
+3. In each Render service, verify the connected repository and branch are correct.
+4. Keep required environment variables configured in Render:
+  - Frontend: VITE_API_BASE_URL
+  - Backend: CORS_ORIGINS and other runtime secrets
+5. Trigger a manual deploy in Render after changing repository visibility.
+
+If auto deploy fails after making the repository private, reconnect the GitHub integration for Render and redeploy.
+
 ## API Docs (Backend)
 
 When running backend locally, API docs are available at:
