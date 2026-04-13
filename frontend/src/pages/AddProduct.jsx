@@ -14,6 +14,15 @@ function AddProduct() {
   const [error, setError] = useState(null)
   const [created, setCreated] = useState(null)
 
+  function applyHoldTarget() {
+    const current = Number(selectedPreview?.price)
+    if (!Number.isFinite(current) || current <= 0) return
+
+    // HOLD recommendation generally appears when current price is within ~10% above target.
+    const holdTarget = Math.max(1, Math.floor((current / 1.1) * 100) / 100)
+    setTargetPrice(String(holdTarget))
+  }
+
   useEffect(() => {
     const term = productName.trim()
 
@@ -184,6 +193,17 @@ function AddProduct() {
             disabled={loading}
           />
         </label>
+
+        {Number.isFinite(Number(selectedPreview?.price)) ? (
+          <div className="row" style={{ alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+            <button className="button" type="button" onClick={applyHoldTarget} disabled={loading}>
+              Use HOLD target
+            </button>
+            <span className="section-sub">
+              Current: Rs. {Number(selectedPreview.price).toFixed(2)} | This fills a target likely to produce HOLD.
+            </span>
+          </div>
+        ) : null}
 
         <div className="row">
           <button className="button" type="submit" disabled={loading}>
