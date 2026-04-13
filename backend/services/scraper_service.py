@@ -11,17 +11,29 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger(__name__)
 
 
-DESKTOP_BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+COMMON_BROWSER_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "en-IN,en;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Upgrade-Insecure-Requests": "1",
+    "Referer": "https://www.amazon.in/",
+}
+
+DESKTOP_BROWSER_HEADERS = {
+    **COMMON_BROWSER_HEADERS,
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
 }
 
 MOBILE_BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Mobile Safari/537.36",
-    "Accept-Language": "en-IN,en;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    **COMMON_BROWSER_HEADERS,
+    "User-Agent": "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
 }
+
+
+def _pick_browser_headers():
+    # Rotate realistic browser fingerprints to reduce repetitive bot-like requests.
+    return random.choice((DESKTOP_BROWSER_HEADERS, MOBILE_BROWSER_HEADERS)).copy()
 
 
 def _request_with_retries(url: str, headers: dict, timeout: int = 12, retries: int = 3):
@@ -138,7 +150,7 @@ def fetch_amazon_price_scraper(asin: str):
     try:
         url = f"https://www.amazon.in/dp/{asin}"
 
-        response = _request_with_retries(url, headers=MOBILE_BROWSER_HEADERS, timeout=12, retries=3)
+        response = _request_with_retries(url, headers=_pick_browser_headers(), timeout=12, retries=3)
 
         if response.status_code != 200:
             logger.warning("Amazon scrape HTTP %s for ASIN=%s", response.status_code, asin)
@@ -218,7 +230,7 @@ def search_amazon_products(search_term: str, limit: int = 6):
         query = quote_plus(search_term.strip())
         url = f"https://www.amazon.in/gp/aw/s?k={query}"
 
-        response = _request_with_retries(url, headers=MOBILE_BROWSER_HEADERS, timeout=12, retries=3)
+        response = _request_with_retries(url, headers=_pick_browser_headers(), timeout=12, retries=3)
         if response.status_code != 200:
             logger.warning("Amazon live search HTTP %s for term=%r", response.status_code, search_term)
             return []
