@@ -7,3 +7,9 @@ node_modules/
 build/
 *.egg-info/
 PROJECT_KNOWLEDGE_TRANSFER.md
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
