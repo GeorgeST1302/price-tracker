@@ -92,6 +92,7 @@ function AddProduct() {
           product_name: trimmedProductName,
           target_price: parsedTarget,
           asin: selectedPreview?.asin || null,
+          preview_price: Number.isFinite(Number(selectedPreview?.price)) ? Number(selectedPreview.price) : null,
         }),
       })
 

@@ -247,6 +247,8 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
     # 🔥 Fetch real data (scraper or fallback)
     product_data = get_product_data(resolved_asin) or {}
     live_price = _coerce_numeric_price(product_data.get("price"))
+    if live_price is None:
+        live_price = _coerce_numeric_price(product.preview_price)
 
     requested_target = float(product.target_price)
     if live_price is not None and requested_target >= live_price:

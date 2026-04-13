@@ -23,6 +23,12 @@ function dealStatusTone(value) {
   return "status-hold"
 }
 
+function coerceFinitePrice(value) {
+  if (value === null || value === undefined || value === "") return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -58,8 +64,8 @@ function Dashboard() {
         const latestFromHistory = history[0]?.price
         const oldestFromHistory = history[history.length - 1]?.price
 
-        const latest = Number.isFinite(Number(product.latest_price)) ? Number(product.latest_price) : Number(latestFromHistory)
-        const oldest = Number(oldestFromHistory)
+        const latest = coerceFinitePrice(product.latest_price) ?? coerceFinitePrice(latestFromHistory)
+        const oldest = coerceFinitePrice(oldestFromHistory)
         const dropPct =
           Number.isFinite(latest) && Number.isFinite(oldest) && oldest > 0 ? ((oldest - latest) / oldest) * 100 : null
         const gap = Number.isFinite(latest) ? latest - product.target_price : null

@@ -6,6 +6,7 @@ class ProductCreate(BaseModel):
     product_name: str
     target_price: float
     asin: Optional[str] = None
+    preview_price: float | None = None
 
 
 class ProductResponse(BaseModel):
