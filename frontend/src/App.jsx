@@ -13,14 +13,6 @@ function App() {
     <HashRouter>
       <div className="app-shell">
         <header className="topbar">
-          <div className="brand">
-            <p className="eyebrow">Price monitoring & alerting</p>
-            <div className="brand-logo" aria-label="PricePulse logo">
-              <h1>PricePulse</h1>
-            </div>
-            <p className="tagline">Track the products you care about and get notified the moment the price drops below your target.</p>
-          </div>
-
           <nav className="tabs" aria-label="Main navigation">
             <NavLink to="/" end className={({ isActive }) => (isActive ? "tab tab-active" : "tab")}>
               Dashboard
